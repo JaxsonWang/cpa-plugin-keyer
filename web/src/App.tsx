@@ -78,7 +78,7 @@ function TopNav() {
           <Link to="/events" className={"tn-link" + (loc.pathname === "/events" ? " active" : "")}><NavIcon name="events" />{t("usage.eventsTitle")}</Link>
           <Link to="/keys/new" className={"tn-link" + (onNew ? " active" : "")}><NavIcon name="new" />{t("header.newKey")}</Link>
         </div>
-		<div className="tn-version">CPA PLUGIN · v0.7.0</div>
+        <div className="tn-version">CPA PLUGIN · v0.7.1</div>
       </div>
     </aside>
   );
