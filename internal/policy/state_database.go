@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -20,6 +21,8 @@ const (
 	usageHistoryPruneInterval = time.Hour
 	stateDatabaseVersion      = 2
 )
+
+var stateDatabaseInitializationMu sync.Mutex
 
 type stateDatabase struct {
 	db         *sql.DB
@@ -52,9 +55,12 @@ func openStateDatabase(path string, now func() time.Time) (*stateDatabase, error
 	db.SetMaxIdleConns(4)
 
 	database := &stateDatabase{db: db, path: path, now: now}
-	if err := database.initialize(); err != nil {
+	stateDatabaseInitializationMu.Lock()
+	initializeErr := database.initialize()
+	stateDatabaseInitializationMu.Unlock()
+	if initializeErr != nil {
 		_ = db.Close()
-		return nil, err
+		return nil, initializeErr
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
 		_ = db.Close()
@@ -171,9 +177,29 @@ func (h *stateDatabase) initialize() error {
 }
 
 func (h *stateDatabase) migrateSchema() error {
+	ctx := context.Background()
+	conn, err := h.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire state database schema migration connection: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return fmt.Errorf("begin state database schema migration: %w", err)
+	}
+	transactionOpen := true
+	defer func() {
+		if transactionOpen {
+			_, _ = conn.ExecContext(ctx, `ROLLBACK`)
+		}
+	}()
+
 	var version int
-	if err := h.db.QueryRow(`SELECT schema_version FROM state_meta WHERE id = 1`).Scan(&version); err != nil {
+	if err := conn.QueryRowContext(ctx, `SELECT schema_version FROM state_meta WHERE id = 1`).Scan(&version); err != nil {
 		if err == sql.ErrNoRows {
+			if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+				return fmt.Errorf("commit empty state database schema migration: %w", err)
+			}
+			transactionOpen = false
 			return nil
 		}
 		return fmt.Errorf("read state database schema version: %w", err)
@@ -182,45 +208,73 @@ func (h *stateDatabase) migrateSchema() error {
 		return fmt.Errorf("state database schema version %d is newer than supported version %d", version, stateDatabaseVersion)
 	}
 	if version == stateDatabaseVersion {
+		if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+			return fmt.Errorf("commit current state database schema migration: %w", err)
+		}
+		transactionOpen = false
 		return nil
 	}
 	if version != 1 {
 		return fmt.Errorf("state database schema version %d is unsupported", version)
 	}
 
-	tx, err := h.db.Begin()
+	columns := make(map[string]bool)
+	rows, err := conn.QueryContext(ctx, `PRAGMA table_info(usage_events)`)
 	if err != nil {
-		return fmt.Errorf("begin state database schema migration: %w", err)
+		return fmt.Errorf("inspect usage event columns: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
-	migrations := []string{
-		`ALTER TABLE usage_events ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE usage_events ADD COLUMN executor_type TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE usage_events ADD COLUMN auth_type TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE usage_events ADD COLUMN auth_index TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE usage_events ADD COLUMN source TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE usage_events ADD COLUMN service_tier TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE usage_events ADD COLUMN generate INTEGER NOT NULL DEFAULT 1`,
-		`ALTER TABLE usage_events ADD COLUMN latency_ms INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE usage_events ADD COLUMN ttft_ms INTEGER`,
-		`ALTER TABLE usage_events ADD COLUMN status_code INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE usage_events ADD COLUMN uncached_input_cost_usd REAL NOT NULL DEFAULT 0`,
-		`ALTER TABLE usage_events ADD COLUMN cache_read_cost_usd REAL NOT NULL DEFAULT 0`,
-		`ALTER TABLE usage_events ADD COLUMN cache_creation_cost_usd REAL NOT NULL DEFAULT 0`,
-		`ALTER TABLE usage_events ADD COLUMN output_cost_usd REAL NOT NULL DEFAULT 0`,
-		`ALTER TABLE usage_events ADD COLUMN other_cost_usd REAL NOT NULL DEFAULT 0`,
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan usage event column: %w", err)
+		}
+		columns[name] = true
 	}
-	for _, statement := range migrations {
-		if _, err := tx.Exec(statement); err != nil {
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close usage event column rows: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate usage event columns: %w", err)
+	}
+
+	migrations := []struct {
+		name      string
+		statement string
+	}{
+		{"reasoning_effort", `ALTER TABLE usage_events ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT ''`},
+		{"executor_type", `ALTER TABLE usage_events ADD COLUMN executor_type TEXT NOT NULL DEFAULT ''`},
+		{"auth_type", `ALTER TABLE usage_events ADD COLUMN auth_type TEXT NOT NULL DEFAULT ''`},
+		{"auth_index", `ALTER TABLE usage_events ADD COLUMN auth_index TEXT NOT NULL DEFAULT ''`},
+		{"source", `ALTER TABLE usage_events ADD COLUMN source TEXT NOT NULL DEFAULT ''`},
+		{"service_tier", `ALTER TABLE usage_events ADD COLUMN service_tier TEXT NOT NULL DEFAULT ''`},
+		{"generate", `ALTER TABLE usage_events ADD COLUMN generate INTEGER NOT NULL DEFAULT 1`},
+		{"latency_ms", `ALTER TABLE usage_events ADD COLUMN latency_ms INTEGER NOT NULL DEFAULT 0`},
+		{"ttft_ms", `ALTER TABLE usage_events ADD COLUMN ttft_ms INTEGER`},
+		{"status_code", `ALTER TABLE usage_events ADD COLUMN status_code INTEGER NOT NULL DEFAULT 0`},
+		{"uncached_input_cost_usd", `ALTER TABLE usage_events ADD COLUMN uncached_input_cost_usd REAL NOT NULL DEFAULT 0`},
+		{"cache_read_cost_usd", `ALTER TABLE usage_events ADD COLUMN cache_read_cost_usd REAL NOT NULL DEFAULT 0`},
+		{"cache_creation_cost_usd", `ALTER TABLE usage_events ADD COLUMN cache_creation_cost_usd REAL NOT NULL DEFAULT 0`},
+		{"output_cost_usd", `ALTER TABLE usage_events ADD COLUMN output_cost_usd REAL NOT NULL DEFAULT 0`},
+		{"other_cost_usd", `ALTER TABLE usage_events ADD COLUMN other_cost_usd REAL NOT NULL DEFAULT 0`},
+	}
+	for _, migration := range migrations {
+		if columns[migration.name] {
+			continue
+		}
+		if _, err := conn.ExecContext(ctx, migration.statement); err != nil {
 			return fmt.Errorf("migrate usage event details: %w", err)
 		}
 	}
-	if _, err := tx.Exec(`UPDATE state_meta SET schema_version = ?, updated_at_ms = ? WHERE id = 1`, stateDatabaseVersion, h.currentTime().UnixMilli()); err != nil {
+	if _, err := conn.ExecContext(ctx, `UPDATE state_meta SET schema_version = ?, updated_at_ms = ? WHERE id = 1`, stateDatabaseVersion, h.currentTime().UnixMilli()); err != nil {
 		return fmt.Errorf("update state database schema version: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
+	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
 		return fmt.Errorf("commit state database schema migration: %w", err)
 	}
+	transactionOpen = false
 	return nil
 }
 

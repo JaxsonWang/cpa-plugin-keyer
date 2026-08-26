@@ -65,6 +65,15 @@ export function formatDuration(ms: number | undefined): string {
   return `${(ms / 60_000).toFixed(1)} min`;
 }
 
+export function isUnrecordedDimension(value: string | undefined): boolean {
+  const normalized = value?.trim() ?? "";
+  return normalized === "" || normalized.toLowerCase() === "unknown";
+}
+
+export function formatDimensionName(value: string | undefined, unrecordedLabel: string): string {
+  return isUnrecordedDimension(value) ? unrecordedLabel : value!.trim();
+}
+
 export function tokensPerSecond(outputTokens: number, latencyMS: number, ttftMS?: number): number | undefined {
   if (!Number.isFinite(outputTokens) || outputTokens <= 0 || !Number.isFinite(latencyMS) || latencyMS <= 0 || ttftMS === undefined || ttftMS <= 0 || latencyMS <= ttftMS) {
     return undefined;

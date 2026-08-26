@@ -112,26 +112,6 @@ describe("initThemeSync apply", () => {
     expect(document.documentElement.getAttribute("data-theme")).toBeNull();
   });
 
-  it("reacts to parent data-theme changes via MutationObserver", async () => {
-    const parentHtml = document.createElement("html");
-    setEmbedded(true, parentHtml);
-    initThemeSync();
-    expect(document.documentElement.getAttribute("data-theme")).toBeNull(); // light
-
-    parentHtml.setAttribute("data-theme", "dark");
-    // MutationObserver is async; let it flush.
-    await new Promise((r) => setTimeout(r, 0));
-    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
-
-    parentHtml.setAttribute("data-theme", "white");
-    await new Promise((r) => setTimeout(r, 0));
-    expect(document.documentElement.getAttribute("data-theme")).toBe("white");
-
-    parentHtml.removeAttribute("data-theme");
-    await new Promise((r) => setTimeout(r, 0));
-    expect(document.documentElement.getAttribute("data-theme")).toBeNull();
-  });
-
   it("reacts to a storage event on cli-proxy-theme", () => {
     const parentHtml = document.createElement("html");
     setEmbedded(true, parentHtml);
@@ -163,5 +143,19 @@ describe("initThemeSync apply", () => {
     initThemeSync();
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
     // _teardown in afterEach should clean up without error.
+  });
+
+  it("stops reacting to storage events after teardown", () => {
+    const parentHtml = document.createElement("html");
+    parentHtml.setAttribute("data-theme", "dark");
+    setEmbedded(true, parentHtml);
+    initThemeSync();
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+
+    _teardownThemeSync();
+    parentHtml.setAttribute("data-theme", "white");
+    window.dispatchEvent(new StorageEvent("storage", { key: "cli-proxy-theme" }));
+
+    expect(document.documentElement.getAttribute("data-theme")).toBeNull();
   });
 });

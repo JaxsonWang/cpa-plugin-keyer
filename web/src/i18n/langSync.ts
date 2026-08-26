@@ -6,10 +6,9 @@
 // on its own document. Because the plugin is a same-origin iframe (see
 // themeSync.ts rationale), it is a SEPARATE document and does NOT inherit the
 // parent's `lang` attribute. We read the parent's applied `lang` and mirror it
-// into our own i18n store (see ./index.ts), with two backstops:
-//   1. A StorageEvent listener on `cli-proxy-language` — fires cross-browsing-
-//      context on same origin (parent update propagates to child frames).
-//   2. A MutationObserver on the parent's <html lang> (immediate, DOM-driven).
+// into our own i18n store (see ./index.ts). Later changes use a StorageEvent
+// listener on `cli-proxy-language`, which fires in other same-origin browsing
+// contexts without retaining callbacks in the parent document's DOM realm.
 //
 // When NOT embedded (direct page open, self === top) there is no parent to
 // follow; we resolve the initial language from this page's own <html lang>
@@ -21,7 +20,6 @@ import { getLocale, isSupportedLocale, setLocale, type Locale } from "./index";
 
 const PANEL_LANG_STORAGE_KEY = "cli-proxy-language";
 
-let observer: MutationObserver | null = null;
 let storageHandler: ((e: StorageEvent) => void) | null = null;
 let started = false;
 
@@ -126,24 +124,8 @@ export function initLangSync(): void {
 
   if (!isEmbedded()) return; // standalone: nothing to watch.
 
-  let parentEl: HTMLElement;
-  try {
-    parentEl = window.parent.document.documentElement;
-  } catch {
-    // No readable same-origin parent; listen only to storage as a backstop.
-    storageHandler = (e: StorageEvent) => {
-      if (e.key === PANEL_LANG_STORAGE_KEY) sync();
-    };
-    window.addEventListener("storage", storageHandler);
-    return;
-  }
-
-  // The parent's <html> belongs to the parent window's DOM realm. Chromium
-  // rejects it when observed with a MutationObserver created by the iframe.
-  const Observer = parentEl.ownerDocument.defaultView?.MutationObserver ?? MutationObserver;
-  observer = new Observer(() => sync());
-  observer.observe(parentEl, { attributes: true, attributeFilter: ["lang"] });
-
+  // Keep the callback in the iframe realm. Parent-owned MutationObservers can
+  // retain callbacks from destroyed plugin iframes when CPA changes routes.
   storageHandler = (e: StorageEvent) => {
     if (e.key === PANEL_LANG_STORAGE_KEY) sync();
   };
@@ -152,8 +134,6 @@ export function initLangSync(): void {
 
 // For tests: tear down listeners + reset state so a new init can run.
 export function _teardownLangSync(): void {
-  observer?.disconnect();
-  observer = null;
   if (storageHandler) {
     window.removeEventListener("storage", storageHandler);
     storageHandler = null;

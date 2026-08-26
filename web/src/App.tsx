@@ -32,15 +32,20 @@ function BrandMark() {
 type NavName = "keys" | "new" | "overview" | "events";
 
 function NavIcon({ name }: { name: NavName }) {
-  const props = { "aria-hidden": true, size: 18, weight: "regular" as const };
-  if (name === "new") return <Plus {...props} />;
-  if (name === "overview") return <SquaresFour {...props} />;
-  if (name === "events") return <ListBullets {...props} />;
-  return <Key {...props} />;
+  const props = { "aria-hidden": true, size: 17, weight: "bold" as const };
+  const icon = name === "new"
+    ? <Plus {...props} />
+    : name === "overview"
+      ? <SquaresFour {...props} />
+      : name === "events"
+        ? <ListBullets {...props} />
+        : <Key {...props} />;
+  return <span className="nav-icon">{icon}</span>;
 }
 
-// Desktop uses a compact operator-console sidebar. Mobile keeps the existing
-// page headers and bottom tab bar to preserve one-handed interaction.
+// Standalone desktop uses the same horizontal information architecture as the
+// CPA-embedded surface. Mobile keeps the existing bottom tab bar for
+// one-handed interaction.
 function TopNav() {
   const t = useT();
   const loc = useLocation();
@@ -50,7 +55,7 @@ function TopNav() {
   const onKeys = loc.pathname === "/keys" || loc.pathname.startsWith("/keys/");
   const onNew = loc.pathname === "/keys/new" || loc.pathname.startsWith("/keys/new/");
   return (
-    <aside className="topnav">
+    <header className="topnav">
       <div className="topnav-inner">
         <div className="topnav-brand">
           <BrandMark />
@@ -69,9 +74,9 @@ function TopNav() {
           <Link to="/keys" className={"tn-link" + (onKeys && !onNew ? " active" : "")}><NavIcon name="keys" />{t("header.keyList")}</Link>
           <Link to="/keys/new" className={"tn-link" + (onNew ? " active" : "")}><NavIcon name="new" />{t("header.newKey")}</Link>
         </div>
-        <div className="tn-version">KEYER · v0.7.3</div>
+        <div className="tn-version">KEYER · v0.7.7</div>
       </div>
-    </aside>
+    </header>
   );
 }
 
@@ -105,17 +110,17 @@ function WorkspaceHeader() {
 function SectionNav() {
   const t = useT();
   const location = useLocation();
-  const topLevel = ["/keys", "/overview", "/events"].includes(location.pathname);
-  if (!topLevel) return null;
-  const items: { to: string; label: string; icon: NavName }[] = [
-    { to: "/overview", label: t("usage.overviewTitle"), icon: "overview" },
-    { to: "/events", label: t("usage.eventsTitle"), icon: "events" },
-    { to: "/keys", label: t("header.keyList"), icon: "keys" },
+  const onNew = location.pathname === "/keys/new" || location.pathname.startsWith("/keys/new/");
+  const items: { to: string; label: string; icon: NavName; active: boolean }[] = [
+    { to: "/overview", label: t("usage.overviewTitle"), icon: "overview", active: location.pathname === "/overview" },
+    { to: "/events", label: t("usage.eventsTitle"), icon: "events", active: location.pathname === "/events" },
+    { to: "/keys", label: t("header.keyList"), icon: "keys", active: location.pathname.startsWith("/keys") && !onNew },
+    { to: "/keys/new", label: t("header.newKey"), icon: "new", active: onNew },
   ];
   return (
     <nav className="section-nav" aria-label={t("usage.sectionNavigation")}>
       {items.map((item) => (
-        <Link key={item.to} to={item.to} className={location.pathname === item.to ? "active" : ""}>
+        <Link key={item.to} to={item.to} className={item.active ? "active" : ""}>
           <NavIcon name={item.icon} />
           <span>{item.label}</span>
         </Link>

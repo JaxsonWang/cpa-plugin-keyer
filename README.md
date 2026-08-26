@@ -10,6 +10,37 @@ It issues plugin-owned `cpa_…` keys and enforces an exact model allow-list, RP
 | **License** | MIT |
 | **中文说明** | [README.zh-CN.md](./README.zh-CN.md) |
 
+## v0.7.7 focused filters and navigation icons
+
+Request-event filters are limited to time range, Key ID, provider, and result.
+Navigation icons now keep clear Phosphor fills in both light and dark themes
+instead of inheriting generic SVG stroke rules.
+
+## v0.7.6 CPA route-switch crash fix
+
+Theme and language synchronization no longer creates cross-iframe
+`MutationObserver` instances from the CPA parent realm. This prevents the host
+document from retaining callbacks and rendering resources from plugin iframes
+after route switches remove them. Initial values still come from the CPA DOM,
+later changes use same-origin `storage` events, and ECharts now relies on its
+normal React unmount cleanup instead of forced disposal during `pagehide`.
+
+## v0.7.5 SQLite migration fix
+
+SQLite schema upgrades now use an immediate write transaction and re-check the
+version and existing columns while holding the write lock. Repeated
+`plugin.reconfigure` calls and partially migrated databases no longer fail by
+trying to add an already existing column.
+
+## v0.7.4 navigation and iframe lifecycle
+
+Key creation is now a persistent item in the embedded top navigation, and the
+standalone desktop shell uses the same horizontal navigation instead of a
+sidebar. When CPA removes the plugin iframe, Keyer explicitly disconnects host
+observers and disposes every ECharts renderer before the iframe realm is
+destroyed. Runtime dimensions absent from older request events are displayed as
+`Not recorded` instead of the internal `unknown` sentinel.
+
 ## v0.7.3 usage analytics, CPA-integrated UI, and SQLite state
 
 The embedded UI now follows CPA's light, white, and dark management themes and

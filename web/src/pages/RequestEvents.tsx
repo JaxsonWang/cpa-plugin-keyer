@@ -24,13 +24,7 @@ export default function RequestEvents() {
   const [range, setRange] = useState<UsageRange>("7d");
   const [keyID, setKeyID] = useState("");
   const [provider, setProvider] = useState("");
-  const [model, setModel] = useState("");
   const [result, setResult] = useState<"" | "success" | "failed">("");
-  const [executorType, setExecutorType] = useState("");
-  const [authType, setAuthType] = useState("");
-  const [source, setSource] = useState("");
-  const [serviceTier, setServiceTier] = useState("");
-  const [statusCode, setStatusCode] = useState("");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<UsageEventsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -44,12 +38,6 @@ export default function RequestEvents() {
         range,
         key_id: keyID,
         provider,
-        model,
-        executor_type: executorType,
-        auth_type: authType,
-        source,
-        service_tier: serviceTier,
-        status_code: statusCode ? Number(statusCode) : undefined,
         result: result || undefined,
         page,
         page_size: 50,
@@ -59,7 +47,7 @@ export default function RequestEvents() {
     } finally {
       setLoading(false);
     }
-  }, [authType, executorType, keyID, model, page, provider, range, result, serviceTier, source, statusCode, t]);
+  }, [keyID, page, provider, range, result, t]);
 
   useEffect(() => {
     void load();
@@ -101,13 +89,6 @@ export default function RequestEvents() {
           </select>
         </label>
         <label>
-          <span>{t("usage.model")}</span>
-          <select aria-label={t("usage.model")} value={model} disabled={loading} onChange={(event) => changeFilter(setModel, event.target.value)}>
-            <option value="">{t("usage.allModels")}</option>
-            {(data?.filters.models ?? []).map((value) => <option key={value} value={value}>{value}</option>)}
-          </select>
-        </label>
-        <label>
           <span>{t("usage.result")}</span>
           <select aria-label={t("usage.result")} value={result} disabled={loading} onChange={(event) => { setPage(1); setResult(event.target.value as typeof result); }}>
             <option value="">{t("usage.allResults")}</option>
@@ -115,41 +96,6 @@ export default function RequestEvents() {
             <option value="failed">{t("usage.failed")}</option>
           </select>
         </label>
-        {(data?.filters.sources.length ?? 0) > 0 && <label>
-          <span>{t("usage.events.requestSource")}</span>
-          <select aria-label={t("usage.events.requestSource")} value={source} disabled={loading} onChange={(event) => changeFilter(setSource, event.target.value)}>
-            <option value="">{t("usage.events.allSources")}</option>
-            {data?.filters.sources.map((value) => <option key={value} value={value}>{value}</option>)}
-          </select>
-        </label>}
-        {(data?.filters.executor_types.length ?? 0) > 0 && <label>
-          <span>{t("usage.events.executor")}</span>
-          <select aria-label={t("usage.events.executor")} value={executorType} disabled={loading} onChange={(event) => changeFilter(setExecutorType, event.target.value)}>
-            <option value="">{t("usage.events.allExecutors")}</option>
-            {data?.filters.executor_types.map((value) => <option key={value} value={value}>{value}</option>)}
-          </select>
-        </label>}
-        {(data?.filters.auth_types.length ?? 0) > 0 && <label>
-          <span>{t("usage.events.authType")}</span>
-          <select aria-label={t("usage.events.authType")} value={authType} disabled={loading} onChange={(event) => changeFilter(setAuthType, event.target.value)}>
-            <option value="">{t("usage.events.allAuthTypes")}</option>
-            {data?.filters.auth_types.map((value) => <option key={value} value={value}>{value}</option>)}
-          </select>
-        </label>}
-        {(data?.filters.service_tiers.length ?? 0) > 0 && <label>
-          <span>{t("usage.events.serviceTier")}</span>
-          <select aria-label={t("usage.events.serviceTier")} value={serviceTier} disabled={loading} onChange={(event) => changeFilter(setServiceTier, event.target.value)}>
-            <option value="">{t("usage.events.allServiceTiers")}</option>
-            {data?.filters.service_tiers.map((value) => <option key={value} value={value}>{value}</option>)}
-          </select>
-        </label>}
-        {(data?.filters.status_codes.length ?? 0) > 0 && <label>
-          <span>{t("usage.events.statusCode")}</span>
-          <select aria-label={t("usage.events.statusCode")} value={statusCode} disabled={loading} onChange={(event) => changeFilter(setStatusCode, event.target.value)}>
-            <option value="">{t("usage.events.allStatusCodes")}</option>
-            {data?.filters.status_codes.map((value) => <option key={value} value={value}>{value}</option>)}
-          </select>
-        </label>}
       </UsageControls>
 
       {error && <div className="error">{error}</div>}

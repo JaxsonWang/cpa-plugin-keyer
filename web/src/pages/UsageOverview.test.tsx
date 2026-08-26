@@ -100,10 +100,10 @@ describe("UsageOverview", () => {
       by_model: [breakdown],
       by_key: [{ ...breakdown, name: "team-a" }],
       by_provider: [{ ...breakdown, name: "codex" }],
-      by_executor: [{ ...breakdown, name: "codex" }],
-      by_auth_type: [{ ...breakdown, name: "apikey" }],
-      by_source: [{ ...breakdown, name: "openai-responses" }],
-      by_service_tier: [{ ...breakdown, name: "priority" }],
+      by_executor: [{ ...breakdown, name: "unknown" }],
+      by_auth_type: [{ ...breakdown, name: "unknown" }],
+      by_source: [{ ...breakdown, name: "unknown" }],
+      by_service_tier: [{ ...breakdown, name: "unknown" }],
       heatmap: [{ key_id: "team-a", model: "gpt-5.4", request_count: 4_595, total_tokens: 605_230_000, cost_usd: 429.32 }],
       latency_points: [{ ttft_ms: 430, latency_ms: 2_400 }],
       filters: {
@@ -141,5 +141,8 @@ describe("UsageOverview", () => {
     expect(container.querySelector('[data-testid="model-share-chart"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="provider-share-chart"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="key-usage-chart"]')).not.toBeNull();
+    expect(container.textContent).not.toContain("unknown");
+    expect(container.textContent).toContain("未记录");
+    expect(container.textContent).toContain("旧请求事件没有采集这些运行字段");
   });
 });

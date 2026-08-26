@@ -22,11 +22,13 @@ import {
   cacheRateValue,
   costPerMillion,
   formatCount,
+  formatDimensionName,
   formatDuration,
   formatPercent,
   formatRate,
   formatSummaryUSD,
   formatUSD,
+  isUnrecordedDimension,
   successRate,
 } from "../utils/usageFormat";
 
@@ -128,6 +130,18 @@ export default function UsageOverview() {
   const rpm = overview && totals ? averagePerMinute(totals.request_count, overview.from, overview.to) : 0;
   const tpm = overview && totals ? averagePerMinute(totals.total_tokens, overview.from, overview.to) : 0;
   const performance = overview?.performance;
+  const unrecordedLabel = t("usage.unrecorded");
+  const runtimeDimensionRows = analysis ? [
+    ...analysis.by_executor,
+    ...analysis.by_auth_type,
+    ...analysis.by_source,
+    ...analysis.by_service_tier,
+  ] : [];
+  const hasUnrecordedRuntimeDimensions = runtimeDimensionRows.some((row) => isUnrecordedDimension(row.name));
+  const labelDimensionRows = (rows: typeof runtimeDimensionRows) => rows.map((row) => ({
+    ...row,
+    name: formatDimensionName(row.name, unrecordedLabel),
+  }));
 
   return (
     <div className="usage-page dashboard-page">
@@ -218,7 +232,7 @@ export default function UsageOverview() {
             </section>
             <section className="dashboard-chart-card">
               <div className="dashboard-card-head"><div><h2>{t("usage.chart.executorShare")}</h2><p>{t("usage.chart.executorShareHint")}</p></div></div>
-              {analysis.by_executor.length > 0 ? <DimensionShareChart rows={analysis.by_executor} ariaLabel={t("usage.chart.executorShare")} /> : <div className="analysis-empty muted">{t("usage.noData")}</div>}
+              {analysis.by_executor.length > 0 ? <DimensionShareChart rows={labelDimensionRows(analysis.by_executor)} ariaLabel={t("usage.chart.executorShare")} /> : <div className="analysis-empty muted">{t("usage.noData")}</div>}
             </section>
 
             <section className="dashboard-chart-card dashboard-span-2">
@@ -229,10 +243,11 @@ export default function UsageOverview() {
               <div className="dashboard-card-head"><div><h2>{t("usage.chart.runtimeProfile")}</h2><p>{t("usage.chart.runtimeProfileHint")}</p></div></div>
               <div className="dimension-stack">
                 <div><span>{t("usage.provider")}</span><strong>{analysis.by_provider[0]?.name ?? "—"}</strong><small>{formatCount(analysis.by_provider[0]?.request_count ?? 0)} {t("usage.stats.requests")}</small></div>
-                <div><span>{t("usage.events.authType")}</span><strong>{analysis.by_auth_type[0]?.name ?? "—"}</strong><small>{formatCount(analysis.by_auth_type[0]?.request_count ?? 0)} {t("usage.stats.requests")}</small></div>
-                <div><span>{t("usage.events.serviceTier")}</span><strong>{analysis.by_service_tier[0]?.name ?? "—"}</strong><small>{formatCount(analysis.by_service_tier[0]?.request_count ?? 0)} {t("usage.stats.requests")}</small></div>
-                <div><span>{t("usage.events.requestSource")}</span><strong>{analysis.by_source[0]?.name ?? "—"}</strong><small>{formatCount(analysis.by_source[0]?.request_count ?? 0)} {t("usage.stats.requests")}</small></div>
+                <div><span>{t("usage.events.authType")}</span><strong>{analysis.by_auth_type[0] ? formatDimensionName(analysis.by_auth_type[0].name, unrecordedLabel) : "—"}</strong><small>{formatCount(analysis.by_auth_type[0]?.request_count ?? 0)} {t("usage.stats.requests")}</small></div>
+                <div><span>{t("usage.events.serviceTier")}</span><strong>{analysis.by_service_tier[0] ? formatDimensionName(analysis.by_service_tier[0].name, unrecordedLabel) : "—"}</strong><small>{formatCount(analysis.by_service_tier[0]?.request_count ?? 0)} {t("usage.stats.requests")}</small></div>
+                <div><span>{t("usage.events.requestSource")}</span><strong>{analysis.by_source[0] ? formatDimensionName(analysis.by_source[0].name, unrecordedLabel) : "—"}</strong><small>{formatCount(analysis.by_source[0]?.request_count ?? 0)} {t("usage.stats.requests")}</small></div>
               </div>
+              {hasUnrecordedRuntimeDimensions && <p className="dimension-data-note">{t("usage.unrecordedHint")}</p>}
             </section>
 
             <section className="dashboard-chart-card">
@@ -245,7 +260,7 @@ export default function UsageOverview() {
             </section>
             <section className="dashboard-chart-card">
               <div className="dashboard-card-head"><div><h2>{t("usage.chart.authShare")}</h2><p>{t("usage.chart.authShareHint")}</p></div></div>
-              {analysis.by_auth_type.length > 0 ? <DimensionShareChart rows={analysis.by_auth_type} ariaLabel={t("usage.chart.authShare")} /> : <div className="analysis-empty muted">{t("usage.noData")}</div>}
+              {analysis.by_auth_type.length > 0 ? <DimensionShareChart rows={labelDimensionRows(analysis.by_auth_type)} ariaLabel={t("usage.chart.authShare")} /> : <div className="analysis-empty muted">{t("usage.noData")}</div>}
             </section>
             <ModelEfficiency data={analysis} />
           </div>

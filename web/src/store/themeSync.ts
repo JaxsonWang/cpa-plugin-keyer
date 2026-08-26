@@ -25,7 +25,6 @@ const PANEL_THEME_STORAGE_KEY = "cli-proxy-theme";
 
 export type AppliedTheme = "light" | "white" | "dark";
 
-let observer: MutationObserver | null = null;
 let storageHandler: ((e: StorageEvent) => void) | null = null;
 let started = false;
 
@@ -83,24 +82,11 @@ export function initThemeSync(): void {
 
   if (!isEmbedded()) return; // standalone: nothing to watch.
 
-  // Watch the parent's <html> data-theme attribute. This catches:
-  //  - user clicking a theme in the panel (setTheme → applyTheme writes DOM)
-  //  - `auto` resolving to a different theme when the system preference changes
-  let parentEl: HTMLElement;
-  try {
-    parentEl = window.parent.document.documentElement;
-  } catch {
-    return;
-  }
-  // A same-origin iframe and its parent still belong to different DOM realms.
-  // Chromium rejects a parent Node passed to the iframe's MutationObserver,
-  // so construct the observer from the observed element's owning window.
-  const Observer = parentEl.ownerDocument.defaultView?.MutationObserver ?? MutationObserver;
-  observer = new Observer(() => sync());
-  observer.observe(parentEl, { attributes: true, attributeFilter: [THEME_ATTR] });
-
-  // Also listen for same-origin localStorage changes as a backstop — covers any
-  // path that rewrites `cli-proxy-theme` and then re-applies the DOM.
+  // Keep all listeners owned by this iframe. A MutationObserver created from
+  // the parent realm can retain an iframe callback after CPA removes it and
+  // eventually crash Chromium while switching panel routes. The panel persists
+  // every explicit theme change to this shared key, so the storage event is the
+  // safe cross-document synchronization boundary.
   storageHandler = (e: StorageEvent) => {
     if (e.key === PANEL_THEME_STORAGE_KEY) sync();
   };
@@ -109,8 +95,6 @@ export function initThemeSync(): void {
 
 // For tests: tear down listeners and reset state so a new init can run.
 export function _teardownThemeSync(): void {
-  observer?.disconnect();
-  observer = null;
   if (storageHandler) {
     window.removeEventListener("storage", storageHandler);
     storageHandler = null;

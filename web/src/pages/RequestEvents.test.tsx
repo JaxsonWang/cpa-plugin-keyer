@@ -68,6 +68,16 @@ describe("RequestEvents", () => {
     expect(container.querySelector(".events-log-heading")).toBeNull();
     expect(container.querySelector(".events-mobile-list .event-mobile-card")?.textContent).toContain("cpa_*****wxyz");
     expect(container.querySelector(".events-mobile-list .event-mobile-card")?.textContent).toContain("codex");
+    const filterLabels = Array.from(container.querySelectorAll(".usage-controls label > span")).map((label) => label.textContent);
+    expect(filterLabels).toEqual(["时间范围", "Key ID", "供应商", "结果"]);
+    expect(fetchUsageEvents).toHaveBeenCalledWith({
+      range: "7d",
+      key_id: "",
+      provider: "",
+      result: undefined,
+      page: 1,
+      page_size: 50,
+    });
     const firstRow = Array.from(container.querySelectorAll("tbody tr:first-child td"));
     expect(firstRow[headers.indexOf("推理强度")]?.textContent?.trim()).toBe("xhigh");
     expect(firstRow[headers.indexOf("执行与认证")]?.textContent).toContain("codex");

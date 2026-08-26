@@ -153,22 +153,6 @@ describe("initLangSync apply", () => {
     Object.defineProperty(window, "navigator", { value: realNav, configurable: true });
   });
 
-  it("reacts to parent <html lang> changes via MutationObserver", async () => {
-    const parentHtml = document.createElement("html");
-    parentHtml.setAttribute("lang", "en");
-    setEmbedded(true, parentHtml);
-    initLangSync();
-    expect(getLocale()).toBe("en");
-
-    parentHtml.setAttribute("lang", "zh-TW");
-    await new Promise((r) => setTimeout(r, 0));
-    expect(getLocale()).toBe("zh-TW");
-
-    parentHtml.setAttribute("lang", "ru");
-    await new Promise((r) => setTimeout(r, 0));
-    expect(getLocale()).toBe("ru");
-  });
-
   it("reacts to a storage event on cli-proxy-language", () => {
     const parentHtml = document.createElement("html");
     // Parent DOM says en; a storage event then claims zh-TW was written AND
@@ -200,6 +184,20 @@ describe("initLangSync apply", () => {
     initLangSync();
     initLangSync();
     expect(getLocale()).toBe("ru");
+  });
+
+  it("stops reacting to storage events after teardown", () => {
+    const parentHtml = document.createElement("html");
+    parentHtml.setAttribute("lang", "en");
+    setEmbedded(true, parentHtml);
+    initLangSync();
+    expect(getLocale()).toBe("en");
+
+    _teardownLangSync();
+    parentHtml.setAttribute("lang", "ru");
+    window.dispatchEvent(new StorageEvent("storage", { key: "cli-proxy-language" }));
+
+    expect(getLocale()).toBe("en");
   });
 });
 

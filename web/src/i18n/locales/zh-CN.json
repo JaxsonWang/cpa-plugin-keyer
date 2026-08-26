@@ -211,6 +211,8 @@
     "loading": "正在加载统计数据…",
     "loadFailed": "统计数据加载失败",
     "noData": "所选范围内暂无数据",
+    "unrecorded": "未记录",
+    "unrecordedHint": "旧请求事件没有采集这些运行字段，新请求会逐步补全。",
     "eventsCount": "共 {{count}} 条请求事件",
     "previous": "上一页",
     "next": "下一页",

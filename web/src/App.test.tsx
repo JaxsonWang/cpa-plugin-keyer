@@ -25,13 +25,13 @@ import { clearSession, setSession } from "./store/session";
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 
-async function renderApp(embedded: boolean) {
+async function renderApp(embedded: boolean, initialPath = "/keys") {
   vi.mocked(isEmbedded).mockReturnValue(embedded);
   setSession("http://127.0.0.1:8317", "secret");
   await act(async () => {
     root = createRoot(container);
     root.render(
-      <MemoryRouter initialEntries={["/keys"]}>
+      <MemoryRouter initialEntries={[initialPath]}>
         <App />
       </MemoryRouter>,
     );
@@ -58,19 +58,28 @@ describe("App shell", () => {
     expect(container.querySelector(".topnav")).toBeNull();
     expect(container.querySelector(".workspace-header")).toBeNull();
     const sectionLinks = Array.from(container.querySelectorAll(".section-nav a"), (link) => link.textContent);
-    expect(sectionLinks).toEqual(["概览", "请求事件", "Key 列表"]);
+    expect(sectionLinks).toEqual(["概览", "请求事件", "Key 列表", "新建 Key"]);
     expect(container.querySelector(".section-nav")?.textContent).not.toContain("分析");
     expect(container.textContent).toContain("Key list content");
+  });
+
+  it("keeps the embedded top navigation visible throughout the new-key flow", async () => {
+    await renderApp(true, "/keys/new/models");
+
+    const nav = container.querySelector(".section-nav");
+    expect(nav).not.toBeNull();
+    expect(nav?.querySelector('a[href="/keys/new"]')?.classList.contains("active")).toBe(true);
+    expect(container.textContent).toContain("Model picker content");
   });
 
   it("keeps the standalone shell without a logout action when opened directly", async () => {
     await renderApp(false);
 
     expect(container.querySelector(".app")?.classList.contains("is-embedded")).toBe(false);
-    expect(container.querySelector(".topnav")).not.toBeNull();
+    expect(container.querySelector("header.topnav")).not.toBeNull();
     expect(container.querySelector(".workspace-header")).not.toBeNull();
     expect(container.querySelector(".tn-title")?.textContent).toBe("Keyer");
-    expect(container.querySelector(".tn-version")?.textContent).toBe("KEYER · v0.7.3");
+    expect(container.querySelector(".tn-version")?.textContent).toBe("KEYER · v0.7.7");
     const topLinks = Array.from(container.querySelectorAll(".topnav-actions a"), (link) => link.textContent);
     expect(topLinks).toEqual(["概览", "请求事件", "Key 列表", "新建 Key"]);
     expect(container.querySelectorAll(".topnav-actions svg")).toHaveLength(4);

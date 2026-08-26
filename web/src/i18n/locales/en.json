@@ -211,6 +211,8 @@
     "loading": "Loading usage data…",
     "loadFailed": "Failed to load usage data",
     "noData": "No data in the selected range",
+    "unrecorded": "Not recorded",
+    "unrecordedHint": "Older request events did not capture these runtime fields; new requests will fill them over time.",
     "eventsCount": "{{count}} request events",
     "previous": "Previous",
     "next": "Next",

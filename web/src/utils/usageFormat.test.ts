@@ -4,6 +4,7 @@ import {
   cacheRate,
   costPerMillion,
   formatCount,
+  formatDimensionName,
   formatDuration,
   formatRate,
   formatSummaryUSD,
@@ -39,5 +40,12 @@ describe("usage formatting", () => {
     expect(formatDuration(2_400)).toBe("2.40 s");
     expect(tokensPerSecond(200, 2_400, 400)).toBe(100);
     expect(tokensPerSecond(200, 400, 400)).toBeUndefined();
+  });
+
+  it("labels missing historical runtime dimensions without exposing the backend sentinel", () => {
+    expect(formatDimensionName("unknown", "未记录")).toBe("未记录");
+    expect(formatDimensionName(" UNKNOWN ", "未记录")).toBe("未记录");
+    expect(formatDimensionName("", "未记录")).toBe("未记录");
+    expect(formatDimensionName("CodexExecutor", "未记录")).toBe("CodexExecutor");
   });
 });

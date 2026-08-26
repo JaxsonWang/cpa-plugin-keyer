@@ -69,12 +69,16 @@ export default function EChart({ ariaLabel, buildOption, className = "" }: EChar
     const themeObserver = new ownerWindow.MutationObserver(() => render());
     themeObserver.observe(container.ownerDocument.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
-    return () => {
+    let disposed = false;
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
       themeObserver.disconnect();
       resizeObserver.disconnect();
       chart.dispose();
-      chartRef.current = null;
+      if (chartRef.current === chart) chartRef.current = null;
     };
+    return dispose;
   }, []);
 
   useEffect(() => {

@@ -953,14 +953,30 @@ td.strong { font-weight: 600; color: var(--text); }
 }
 .section-nav a:hover { color: var(--text); background: var(--panel-2); text-decoration: none; }
 .section-nav a.active { color: var(--text); background: var(--muted-bg); }
-.section-nav svg {
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.nav-icon {
+  width: 23px;
+  height: 23px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+.nav-icon svg {
+  width: 17px;
+  height: 17px;
+  display: block;
+  color: inherit;
+}
+.section-nav a:hover .nav-icon,
+.section-nav a.active .nav-icon,
+.topnav-actions .tn-link:hover .nav-icon,
+.topnav-actions .tn-link.active .nav-icon {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: var(--accent-soft);
 }
 .app.is-embedded .section-nav { display: flex; }
 
@@ -1175,6 +1191,15 @@ td.strong { font-weight: 600; color: var(--text); }
   white-space: nowrap;
 }
 .dimension-stack small { margin-top: 4px; color: var(--muted); font-size: 9px; }
+
+.dimension-data-note {
+  margin: 10px 0 0;
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
 
 .model-efficiency-card { padding-bottom: 0; }
 .analysis-table-wrap { margin: 2px -20px 0; overflow-x: auto; }
@@ -1442,8 +1467,7 @@ select {
 
 @media (min-width: 641px) {
   .app {
-    display: grid;
-    grid-template-columns: 220px minmax(0, 1fr);
+    display: block;
     max-width: none;
     min-height: 100vh;
     margin: 0;
@@ -1454,23 +1478,27 @@ select {
     display: block;
     position: sticky;
     top: 0;
-    height: 100vh;
+    z-index: 50;
+    height: auto;
     margin: 0;
     padding: 0;
-    overflow: hidden;
     color: var(--text);
     background: var(--panel);
     border: 0;
-    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
   }
 
   .topnav-inner {
-    width: 100%;
-    height: 100%;
-    padding: 24px 16px 18px;
+    width: auto;
+    max-width: 1480px;
+    height: 64px;
+    margin: 0 auto;
+    padding: 0 30px;
     display: flex;
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0;
   }
 
   .topnav-brand {
@@ -1478,8 +1506,14 @@ select {
     flex-direction: row;
     align-items: center;
     gap: 11px;
-    padding: 0 8px 22px;
-    border-bottom: 1px solid var(--border);
+    min-width: 170px;
+    padding: 0;
+    border: 0;
+  }
+
+  .topnav-brand .brand-mark {
+    width: 30px;
+    height: 30px;
   }
 
   .tn-brand-copy {
@@ -1504,19 +1538,22 @@ select {
 
   .tn-connection {
     display: flex;
-    align-items: flex-start;
-    gap: 9px;
-    margin: 18px 4px 20px;
-    padding: 10px 11px;
-    border: 1px solid var(--border);
-    border-radius: var(--r-md);
-    background: var(--panel-2);
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    max-width: 250px;
+    margin: 0 0 0 18px;
+    padding: 0 0 0 18px;
+    border: 0;
+    border-left: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
   }
 
   .tn-connection .connection-dot {
     width: 7px;
     height: 7px;
-    margin-top: 5px;
+    margin-top: 0;
     flex: 0 0 auto;
     border-radius: 50%;
     background: var(--ok);
@@ -1544,18 +1581,19 @@ select {
 
   .topnav-actions {
     display: flex;
-    flex: 1;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 5px;
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
   }
 
   .topnav-actions .tn-link {
-    width: 100%;
+    width: auto;
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 11px;
+    gap: 7px;
+    padding: 8px 10px;
     border: 1px solid transparent;
     border-radius: var(--r-md);
     color: var(--muted);
@@ -1569,13 +1607,8 @@ select {
   }
 
   .topnav-actions .tn-link svg {
-    width: 18px;
-    height: 18px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.8;
-    stroke-linecap: round;
-    stroke-linejoin: round;
+    width: 17px;
+    height: 17px;
   }
 
   .topnav-actions .tn-link:hover {
@@ -1588,12 +1621,12 @@ select {
     color: var(--text);
     border-color: var(--border);
     background: var(--muted-bg);
-    box-shadow: inset 2px 0 var(--accent);
+    box-shadow: inset 0 -2px var(--accent);
   }
 
   .tn-version {
-    margin-top: auto;
-    padding: 18px 8px 0;
+    margin: 0 0 0 12px;
+    padding: 0;
     color: var(--muted);
     font-size: 8px;
     font-weight: 650;
@@ -1605,7 +1638,7 @@ select {
   }
 
   .workspace-header {
-    height: 64px;
+    height: 58px;
     display: flex;
     align-items: center;
     padding: 0 28px;
@@ -1653,6 +1686,12 @@ select {
     margin: 0;
     padding: 28px 30px 64px;
   }
+}
+
+@media (min-width: 641px) and (max-width: 1040px) {
+  .topnav-inner { padding-inline: 18px; }
+  .tn-connection,
+  .tn-version { display: none; }
 }
 
 .page-heading {
