@@ -1,5 +1,20 @@
-import { describe, expect, it } from "vitest";
-import { buildModelRules } from "./keys";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { KeyPublic } from "../types";
+
+const clientMocks = vi.hoisted(() => ({
+  patch: vi.fn(),
+}));
+
+vi.mock("./client", () => ({
+  apiClient: () => ({ patch: clientMocks.patch }),
+  pluginPath: (suffix: string) => `/v0/management/plugins/cpa-keyer${suffix}`,
+}));
+
+import { buildModelRules, resetKeyLimits } from "./keys";
+
+beforeEach(() => {
+  clientMocks.patch.mockReset();
+});
 
 describe("buildModelRules", () => {
   it("builds direct model rules without provider routing metadata", () => {
@@ -25,5 +40,22 @@ describe("buildModelRules", () => {
       { provider: "p", model: "" },
       { provider: "p", model: "  ok  " },
     ])).toEqual([{ model: "x" }, { model: "ok" }]);
+  });
+});
+
+describe("resetKeyLimits", () => {
+  it("patches both usage limits to zero without changing unrelated fields", async () => {
+    const updated = { id: "team-a" } as KeyPublic;
+    clientMocks.patch.mockResolvedValue({ data: { key: updated } });
+
+    await expect(resetKeyLimits("team-a")).resolves.toBe(updated);
+    expect(clientMocks.patch).toHaveBeenCalledWith(
+      "/v0/management/plugins/cpa-keyer/keys",
+      {
+        id: "team-a",
+        daily_limit_usd: 0,
+        weekly_limit_usd: 0,
+      },
+    );
   });
 });

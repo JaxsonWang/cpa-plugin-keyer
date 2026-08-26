@@ -716,8 +716,8 @@ func TestAliasUsageLegacyStateMigrates(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Configure persists the canonical v2 shape immediately, rather than only
-	// migrating in memory and later stamping version=2 onto legacy rules.
+	// Configure persists the canonical v3 shape immediately, including the
+	// bounded request-history container introduced for reporting.
 	persistedRaw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -726,8 +726,8 @@ func TestAliasUsageLegacyStateMigrates(t *testing.T) {
 	if err := json.Unmarshal(persistedRaw, &persisted); err != nil {
 		t.Fatal(err)
 	}
-	if persisted.Version != 2 || len(persisted.Keys) != 1 || len(persisted.Keys[0].Models) != 1 {
-		t.Fatalf("persisted state shape = %+v, want canonical v2 key", persisted)
+	if persisted.Version != 3 || len(persisted.Keys) != 1 || len(persisted.Keys[0].Models) != 1 {
+		t.Fatalf("persisted state shape = %+v, want canonical v3 key", persisted)
 	}
 	persistedRule := persisted.Keys[0].Models[0]
 	if persistedRule.Model != "gpt-5-codex" || persistedRule.Alias != "" || persistedRule.Provider != "" || persistedRule.TargetModel != "" || persistedRule.Group != "" {

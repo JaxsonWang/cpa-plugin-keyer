@@ -166,6 +166,7 @@ type State struct {
 	Version   int                    `json:"version"`
 	Keys      []KeyConfig            `json:"keys"`
 	Usage     map[string]*UsageState `json:"usage,omitempty"`
+	History   UsageHistoryState      `json:"history,omitempty"`
 	UpdatedAt time.Time              `json:"updated_at"`
 
 	// Aliases is decoded only when upgrading a v0.4.x state file.
@@ -348,6 +349,10 @@ func LoadState(path string) (*State, error) {
 }
 
 func SaveState(path string, keys []KeyConfig, usage map[string]*UsageState) error {
+	return SaveStateWithHistory(path, keys, usage, UsageHistoryState{})
+}
+
+func SaveStateWithHistory(path string, keys []KeyConfig, usage map[string]*UsageState, history UsageHistoryState) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
@@ -357,7 +362,7 @@ func SaveState(path string, keys []KeyConfig, usage map[string]*UsageState) erro
 		cleanKeys[i].Models = append([]ModelRule(nil), keys[i].Models...)
 		cleanKeys[i].Aliases = nil
 	}
-	state := State{Version: 2, Keys: cleanKeys, Usage: usage, UpdatedAt: time.Now().UTC()}
+	state := State{Version: 3, Keys: cleanKeys, Usage: usage, History: history, UpdatedAt: time.Now().UTC()}
 	raw, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
@@ -366,6 +371,14 @@ func SaveState(path string, keys []KeyConfig, usage map[string]*UsageState) erro
 }
 
 func SaveUsageOnly(path string, usage map[string]*UsageState) error {
+	return updateRuntimeState(path, usage, nil)
+}
+
+func SaveRuntimeState(path string, usage map[string]*UsageState, history UsageHistoryState) error {
+	return updateRuntimeState(path, usage, &history)
+}
+
+func updateRuntimeState(path string, usage map[string]*UsageState, history *UsageHistoryState) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
@@ -375,8 +388,11 @@ func SaveUsageOnly(path string, usage map[string]*UsageState) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	state.Version = 2
+	state.Version = 3
 	state.Usage = usage
+	if history != nil {
+		state.History = *history
+	}
 	state.UpdatedAt = time.Now().UTC()
 	state.Aliases = nil
 	for i := range state.Keys {

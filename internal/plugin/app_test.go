@@ -523,8 +523,8 @@ func TestRegistrationUsesCpaKeyerIdentity(t *testing.T) {
 	if PluginID != "cpa-keyer" || registration.Metadata.Name != "Keyer" {
 		t.Fatalf("plugin identity = %q / %q, want cpa-keyer / Keyer", PluginID, registration.Metadata.Name)
 	}
-	if registration.Metadata.Version != "0.6.1" {
-		t.Fatalf("plugin version = %q, want 0.6.1", registration.Metadata.Version)
+	if registration.Metadata.Version != "0.7.0" {
+		t.Fatalf("plugin version = %q, want 0.7.0", registration.Metadata.Version)
 	}
 	if registration.Metadata.GitHubRepository != "https://github.com/JaxsonWang/cpa-plugin-keyer" {
 		t.Fatalf("repository = %q", registration.Metadata.GitHubRepository)
@@ -549,6 +549,93 @@ func TestManagementRegistrationIncludesGlobalUsageReset(t *testing.T) {
 		}
 	}
 	t.Fatal("global usage reset route was not registered")
+}
+
+func TestManagementRegistrationIncludesUsageReportingRoutes(t *testing.T) {
+	app := NewApp()
+	t.Cleanup(app.Shutdown)
+	wanted := map[string]bool{
+		"/plugins/cpa-keyer/usage/overview": false,
+		"/plugins/cpa-keyer/usage/analysis": false,
+		"/plugins/cpa-keyer/usage/events":   false,
+	}
+	for _, route := range app.managementRegistration().Routes {
+		if route.Method == http.MethodGet {
+			if _, ok := wanted[route.Path]; ok {
+				wanted[route.Path] = true
+			}
+		}
+	}
+	for path, found := range wanted {
+		if !found {
+			t.Fatalf("usage reporting route not registered: %s", path)
+		}
+	}
+}
+
+func TestManagementUsageReportingUsesKeyIDAndRealUsageFields(t *testing.T) {
+	app, plain := configureTestApp(t, 60)
+	usageRequest, _ := json.Marshal(UsageHandleRequest{
+		Provider: "codex", Model: "gpt-5.4", Alias: "gpt-5.4", APIKey: "team-a",
+		Detail: UsageDetail{InputTokens: 1_000, OutputTokens: 200, ReasoningTokens: 50, CachedTokens: 100, TotalTokens: 1_200},
+	})
+	if _, err := app.HandleMethod(MethodUsageHandle, usageRequest); err != nil {
+		t.Fatal(err)
+	}
+	failedRequest, _ := json.Marshal(UsageHandleRequest{
+		Provider: "codex", Model: "gpt-5.4", Alias: "gpt-5.4", APIKey: "team-a", Failed: true,
+	})
+	if _, err := app.HandleMethod(MethodUsageHandle, failedRequest); err != nil {
+		t.Fatal(err)
+	}
+
+	callManagement := func(path string) ManagementResponse {
+		t.Helper()
+		request, _ := json.Marshal(ManagementRequest{
+			Method: http.MethodGet,
+			Path:   path,
+			Query:  map[string][]string{"range": {"24h"}, "key_id": {"team-a"}},
+		})
+		raw, err := app.HandleMethod(MethodManagementHandle, request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := decodeResult[ManagementResponse](t, raw)
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("management response = %+v", response)
+		}
+		return response
+	}
+
+	overviewResponse := callManagement("/v0/management/plugins/cpa-keyer/usage/overview")
+	var overview policy.UsageOverview
+	if err := json.Unmarshal(overviewResponse.Body, &overview); err != nil {
+		t.Fatal(err)
+	}
+	if overview.Totals.RequestCount != 2 || overview.Totals.SuccessCount != 1 || overview.Totals.FailureCount != 1 || overview.Totals.TotalTokens != 1_200 {
+		t.Fatalf("overview totals = %+v", overview.Totals)
+	}
+
+	analysisResponse := callManagement("/v0/management/plugins/cpa-keyer/usage/analysis")
+	var analysis policy.UsageAnalysis
+	if err := json.Unmarshal(analysisResponse.Body, &analysis); err != nil {
+		t.Fatal(err)
+	}
+	if len(analysis.ByKey) != 1 || analysis.ByKey[0].Name != "team-a" || len(analysis.ByProvider) != 1 || analysis.ByProvider[0].Name != "codex" {
+		t.Fatalf("analysis = %+v", analysis)
+	}
+
+	eventsResponse := callManagement("/v0/management/plugins/cpa-keyer/usage/events")
+	var events policy.UsageEventPage
+	if err := json.Unmarshal(eventsResponse.Body, &events); err != nil {
+		t.Fatal(err)
+	}
+	if events.Total != 2 || events.Events[0].KeyID != "team-a" || events.Events[0].Provider != "codex" {
+		t.Fatalf("events = %+v", events)
+	}
+	if strings.Contains(string(eventsResponse.Body), plain) || strings.Contains(string(eventsResponse.Body), "cpa_plugin_test") {
+		t.Fatalf("request events exposed the raw downstream key: %s", eventsResponse.Body)
+	}
 }
 
 func TestManagementResetUsageClearsDailyAndWeeklyAndPersists(t *testing.T) {

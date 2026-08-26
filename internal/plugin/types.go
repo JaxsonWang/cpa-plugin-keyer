@@ -33,7 +33,7 @@ const (
 const (
 	PluginID   = "cpa-keyer"
 	PluginName = "Keyer"
-	Version    = "0.6.1"
+	Version    = "0.7.0"
 )
 
 type Envelope struct {
@@ -138,8 +138,9 @@ type UsageHandleRequest struct {
 	// Alias is CPA ABI terminology for the client-requested model name. It is
 	// used only as a fallback when Model is empty; no alias routing occurs.
 	Alias string `json:"Alias"`
-	// APIKey is the client's downstream key (the cpa_... value), when available.
-	// We hash it to find the owning key config — same lookup path as auth.
+	// APIKey is the usage identity delivered by CPA. For plugin-authenticated
+	// requests current CPA sends the Keyer key ID; older/local callers may still
+	// provide the cpa_ credential, so Store accepts either but never persists it.
 	APIKey string      `json:"APIKey"`
 	Failed bool        `json:"Failed"`
 	Detail UsageDetail `json:"Detail"`

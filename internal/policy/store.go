@@ -21,6 +21,7 @@ type Store struct {
 	keysByHash map[string]*KeyConfig
 	limiter    *RateLimiter
 	usage      *usageLedger
+	history    *usageHistory
 	flusher    *usageFlusher
 }
 
@@ -45,6 +46,7 @@ func NewStore() *Store {
 		keysByHash: make(map[string]*KeyConfig),
 		limiter:    NewRateLimiter(),
 		usage:      newUsageLedger(time.Now),
+		history:    newUsageHistory(time.Now),
 	}
 }
 
@@ -55,6 +57,7 @@ func (s *Store) SetClock(now func() time.Time) {
 	s.mu.Lock()
 	s.limiter = NewRateLimiterWithClock(now)
 	s.usage = newUsageLedger(now)
+	s.history = newUsageHistory(now)
 	s.mu.Unlock()
 }
 
@@ -75,6 +78,7 @@ func (s *Store) Configure(cfg Config) error {
 
 	keys := cfg.Keys
 	var loadedUsage map[string]*UsageState
+	var loadedHistory UsageHistoryState
 	firstBoot := false
 	migratedState := false
 	if state, loadErr := LoadState(statePath); loadErr == nil {
@@ -93,6 +97,7 @@ func (s *Store) Configure(cfg Config) error {
 		}
 		keys = merged.Keys
 		loadedUsage = state.Usage
+		loadedHistory = state.History
 	} else if !errors.Is(loadErr, os.ErrNotExist) {
 		return fmt.Errorf("load state: %w", loadErr)
 	} else {
@@ -130,12 +135,15 @@ func (s *Store) Configure(cfg Config) error {
 	}
 	s.usage = newUsageLedger(clockNow)
 	s.usage.loadFromState(loadedUsage)
+	s.history = newUsageHistory(clockNow)
+	s.history.loadFromState(loadedHistory)
 	baseKeys := s.keysSnapshotLocked()
 	baseUsage := s.usageSnapshotLocked()
+	baseHistory := s.historySnapshotLocked()
 	s.mu.Unlock()
 
 	if firstBoot || migratedState {
-		if err := s.saveState(statePath, baseKeys, baseUsage); err != nil {
+		if err := s.saveState(statePath, baseKeys, baseUsage, baseHistory); err != nil {
 			if migratedState {
 				return fmt.Errorf("persist migrated state: %w", err)
 			}
@@ -187,6 +195,13 @@ func (s *Store) runtimeComponents() (*RateLimiter, *usageLedger) {
 	usage := s.usage
 	s.mu.RUnlock()
 	return limiter, usage
+}
+
+func (s *Store) runtimeHistory() *usageHistory {
+	s.mu.RLock()
+	history := s.history
+	s.mu.RUnlock()
+	return history
 }
 
 func (s *Store) StatePath() string {
@@ -350,21 +365,51 @@ func (s *Store) RecordUsage(apiKeyOrID, requestedModel, model string, failed boo
 		resolved = strings.TrimSpace(model)
 	}
 	if resolved == "" {
-		return 0
+		resolved = "unknown"
+	}
+	upstreamModel := strings.TrimSpace(model)
+	if upstreamModel == "" {
+		upstreamModel = resolved
+	}
+	history := s.runtimeHistory()
+	event := UsageEvent{
+		KeyID:               key.ID,
+		Provider:            detail.Provider,
+		Model:               resolved,
+		UpstreamModel:       upstreamModel,
+		Failed:              failed,
+		InputTokens:         detail.InputTokens,
+		OutputTokens:        detail.OutputTokens,
+		ReasoningTokens:     detail.ReasoningTokens,
+		CachedTokens:        detail.CachedTokens,
+		CacheReadTokens:     detail.CacheReadTokens,
+		CacheCreationTokens: detail.CacheCreationTokens,
+		TotalTokens:         detail.TotalTokens,
+	}
+	recordEvent := func() {
+		if history != nil {
+			history.record(event)
+		}
 	}
 	rule, ok := key.ModelRuleForModel(resolved)
 	if !ok {
+		recordEvent()
 		return 0
 	}
+	event.BillingMode = rule.BillingMode
+	event.CostAvailable = true
 	_, ledger := s.runtimeComponents()
 	if rule.BillingMode == "per_call" {
 		if failed {
+			recordEvent()
 			return 0
 		}
 		cost := rule.PerCallUSD
+		event.CostUSD = cost
 		if ledger != nil {
 			ledger.RecordCost(key.ID, resolved, cost, 0, 0, 0, 0, 1)
 		}
+		recordEvent()
 		return cost
 	}
 	usage := TokenUsage{
@@ -373,15 +418,20 @@ func (s *Store) RecordUsage(apiKeyOrID, requestedModel, model string, failed boo
 		Found:            detail.InputTokens > 0 || detail.OutputTokens > 0,
 	}
 	if !usage.Found {
+		recordEvent()
 		return 0
 	}
 	inputPrice, outputPrice, cachePrice, priced := key.PriceForModel(resolved)
+	event.CostAvailable = priced
 	cost, cacheCost, cacheRead := ComputeCacheCostBreakdown(detail.Provider, inputPrice, outputPrice, cachePrice, priced, detail)
+	event.CostUSD = cost
 	if !priced || ledger == nil {
+		recordEvent()
 		return cost
 	}
 	inputTokens := nonCacheInputTokens(detail.Provider, detail, cacheRead)
 	ledger.RecordCost(key.ID, resolved, cost, cacheCost, cacheRead, inputTokens, detail.OutputTokens, 1)
+	recordEvent()
 	return cost
 }
 
@@ -427,6 +477,30 @@ func (s *Store) ModelUsageFor(keyID string) (KeyConfig, []ModelUsageEntry, bool)
 		return *key, rows, true
 	}
 	return *key, usage.ModelUsage(*key), true
+}
+
+func (s *Store) UsageOverview(filter UsageHistoryFilter) UsageOverview {
+	history := s.runtimeHistory()
+	if history == nil {
+		history = newUsageHistory(time.Now)
+	}
+	return history.overview(filter)
+}
+
+func (s *Store) UsageAnalysis(filter UsageHistoryFilter) UsageAnalysis {
+	history := s.runtimeHistory()
+	if history == nil {
+		history = newUsageHistory(time.Now)
+	}
+	return history.analysis(filter)
+}
+
+func (s *Store) UsageEvents(filter UsageHistoryFilter, page, pageSize int) UsageEventPage {
+	history := s.runtimeHistory()
+	if history == nil {
+		return UsageEventPage{Events: []UsageEvent{}, Page: 1, PageSize: pageSize, Filters: UsageFilters{}}
+	}
+	return history.eventPage(filter, page, pageSize)
 }
 
 func (s *Store) FindByAPIKey(raw string) *KeyConfig {
@@ -571,9 +645,10 @@ func (s *Store) UpsertKey(input KeyConfig, persist bool) error {
 	keys := s.keysSnapshotLocked()
 	path := s.statePath
 	usage := s.usageSnapshotLocked()
+	history := s.historySnapshotLocked()
 	s.mu.Unlock()
 	if persist {
-		return s.saveState(path, keys, usage)
+		return s.saveState(path, keys, usage, history)
 	}
 	return nil
 }
@@ -594,6 +669,7 @@ func (s *Store) DeleteKey(id string) error {
 	s.rebuildKeysByHashLocked()
 	keys := s.keysSnapshotLocked()
 	usage := s.usageSnapshotLocked()
+	history := s.historySnapshotLocked()
 	path := s.statePath
 	limiter := s.limiter
 	ledger := s.usage
@@ -604,7 +680,7 @@ func (s *Store) DeleteKey(id string) error {
 	if ledger != nil {
 		ledger.resetUsage(id)
 	}
-	return s.saveState(path, keys, usage)
+	return s.saveState(path, keys, usage, history)
 }
 
 func (s *Store) RotateKey(id string) (string, KeyConfig, error) {
@@ -635,13 +711,14 @@ func (s *Store) RotateKey(id string) (string, KeyConfig, error) {
 	s.rebuildKeysByHashLocked()
 	keys := s.keysSnapshotLocked()
 	usage := s.usageSnapshotLocked()
+	history := s.historySnapshotLocked()
 	path := s.statePath
 	limiter := s.limiter
 	s.mu.Unlock()
 	if limiter != nil {
 		limiter.Reset(id)
 	}
-	if err := s.saveState(path, keys, usage); err != nil {
+	if err := s.saveState(path, keys, usage, history); err != nil {
 		return "", KeyConfig{}, err
 	}
 	return plain, result, nil
@@ -665,6 +742,13 @@ func (s *Store) usageSnapshotLocked() map[string]*UsageState {
 	return s.usage.snapshot()
 }
 
+func (s *Store) historySnapshotLocked() UsageHistoryState {
+	if s.history == nil {
+		return UsageHistoryState{}
+	}
+	return s.history.snapshot()
+}
+
 func (s *Store) FlushUsage() error {
 	// Serialize the snapshot with persistence. Taking the snapshot before this
 	// lock could let an older background flush overwrite a manual usage reset.
@@ -674,11 +758,12 @@ func (s *Store) FlushUsage() error {
 	s.mu.RLock()
 	path := s.statePath
 	usage := s.usageSnapshotLocked()
+	history := s.historySnapshotLocked()
 	s.mu.RUnlock()
 	if strings.TrimSpace(path) == "" {
 		return nil
 	}
-	return SaveUsageOnly(path, usage)
+	return SaveRuntimeState(path, usage, history)
 }
 
 // ResetAllUsage clears every key's daily and weekly usage and persists the
@@ -694,9 +779,10 @@ func (s *Store) ResetAllUsage() error {
 	s.mu.RLock()
 	path := s.statePath
 	usage := s.usage
+	history := s.historySnapshotLocked()
 	s.mu.RUnlock()
 	if strings.TrimSpace(path) != "" {
-		if err := SaveUsageOnly(path, make(map[string]*UsageState)); err != nil {
+		if err := SaveRuntimeState(path, make(map[string]*UsageState), history); err != nil {
 			return err
 		}
 	}
@@ -706,10 +792,10 @@ func (s *Store) ResetAllUsage() error {
 	return nil
 }
 
-func (s *Store) saveState(path string, keys []KeyConfig, usage map[string]*UsageState) error {
+func (s *Store) saveState(path string, keys []KeyConfig, usage map[string]*UsageState, history UsageHistoryState) error {
 	s.persistMu.Lock()
 	defer s.persistMu.Unlock()
-	return SaveState(path, keys, usage)
+	return SaveStateWithHistory(path, keys, usage, history)
 }
 
 type usageFlusher struct {

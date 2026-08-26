@@ -13,10 +13,11 @@ vi.mock("../api/keys", () => ({
   rotateKey: vi.fn(),
   resetRPM: vi.fn(),
   resetAllUsage: vi.fn(),
+  resetKeyLimits: vi.fn(),
   setKeyEnabled: vi.fn(),
 }));
 
-import { listKeys, resetAllUsage, setKeyEnabled } from "../api/keys";
+import { listKeys, resetAllUsage, resetKeyLimits, setKeyEnabled } from "../api/keys";
 import KeyList from "./KeyList";
 
 let container: HTMLDivElement;
@@ -48,6 +49,19 @@ async function renderList(keys: KeyPublic[]) {
     ...keys.find((item) => item.id === id)!,
     enabled,
   }));
+  vi.mocked(resetKeyLimits).mockImplementation(async (id) => {
+    const current = keys.find((item) => item.id === id)!;
+    return {
+      ...current,
+      daily_limit_usd: 0,
+      weekly_limit_usd: 0,
+      usage: {
+        ...current.usage,
+        daily_limit_usd: 0,
+        weekly_limit_usd: 0,
+      },
+    };
+  });
   await act(async () => {
     root = createRoot(container);
     root.render(<MemoryRouter><KeyList /></MemoryRouter>);
@@ -74,6 +88,8 @@ describe("KeyList", () => {
     expect(container.querySelectorAll(".key-table tbody tr")).toHaveLength(2);
     expect(container.textContent).toContain("Key team-a");
     expect(container.textContent).toContain("Key team-b");
+    expect(container.querySelector(".page-heading-title h1")?.textContent).toBe("Key 列表");
+    expect(container.querySelector(".page-heading-title .runtime-status")?.textContent).toBe("运行正常");
 
     const toggle = container.querySelector<HTMLInputElement>(
       'input[aria-label="切换 Key team-a 状态"]',
@@ -153,5 +169,78 @@ describe("KeyList", () => {
 
     expect(resetAllUsage).toHaveBeenCalledTimes(1);
     expect(listKeys).toHaveBeenCalledTimes(2);
+  });
+
+  it("resets one key's daily and weekly limits after confirmation", async () => {
+    await renderList([key("team-a")]);
+
+    const resetLimits = Array.from(container.querySelectorAll<HTMLButtonElement>(".key-table-actions button"))
+      .find((button) => button.textContent === "重置上限")!;
+    await act(async () => resetLimits.click());
+
+    const dialog = container.querySelector<HTMLElement>('[role="alertdialog"]')!;
+    expect(dialog.textContent).toContain("每日用量上限和每周用量上限清零为 0");
+    const confirmButton = Array.from(dialog.querySelectorAll("button"))
+      .find((button) => button.textContent === "重置上限")!;
+    await act(async () => {
+      confirmButton.click();
+      await tick();
+    });
+
+    expect(resetKeyLimits).toHaveBeenCalledWith("team-a");
+    expect(container.querySelector(".key-usage-cell")?.textContent).toContain("不限");
+  });
+
+  it("resets selected keys' limits in one batch and clears successful selections", async () => {
+    await renderList([key("team-a"), key("team-b")]);
+
+    const selectAll = container.querySelector<HTMLInputElement>('input[aria-label="全选"]')!;
+    await act(async () => selectAll.click());
+    const batchReset = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent === "批量重置")!;
+    await act(async () => batchReset.click());
+
+    const dialog = container.querySelector<HTMLElement>('[role="alertdialog"]')!;
+    expect(dialog.textContent).toContain("已选 2 个 Key");
+    const confirmButton = Array.from(dialog.querySelectorAll("button"))
+      .find((button) => button.textContent === "批量重置")!;
+    await act(async () => {
+      confirmButton.click();
+      await tick();
+    });
+
+    expect(resetKeyLimits).toHaveBeenCalledWith("team-a");
+    expect(resetKeyLimits).toHaveBeenCalledWith("team-b");
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="选择 Key team-a"]')!.checked).toBe(false);
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="选择 Key team-b"]')!.checked).toBe(false);
+  });
+
+  it("keeps keys whose limit reset failed selected for retry", async () => {
+    const keys = [key("team-a"), key("team-b")];
+    await renderList(keys);
+    vi.mocked(resetKeyLimits)
+      .mockResolvedValueOnce({
+        ...keys[0],
+        daily_limit_usd: 0,
+        weekly_limit_usd: 0,
+        usage: { ...keys[0].usage, daily_limit_usd: 0, weekly_limit_usd: 0 },
+      })
+      .mockRejectedValueOnce(new Error("persist failed"));
+
+    const selectAll = container.querySelector<HTMLInputElement>('input[aria-label="全选"]')!;
+    await act(async () => selectAll.click());
+    const batchReset = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent === "批量重置")!;
+    await act(async () => batchReset.click());
+    const confirmButton = Array.from(container.querySelectorAll<HTMLElement>('[role="alertdialog"] button'))
+      .find((button) => button.textContent === "批量重置")!;
+    await act(async () => {
+      confirmButton.click();
+      await tick();
+    });
+
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="选择 Key team-a"]')!.checked).toBe(false);
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="选择 Key team-b"]')!.checked).toBe(true);
+    expect(container.textContent).toContain("1 个 Key 的用量上限重置失败");
   });
 });

@@ -10,6 +10,26 @@ It issues plugin-owned `cpa_…` keys and enforces an exact model allow-list, RP
 | **License** | MIT |
 | **中文说明** | [README.zh-CN.md](./README.zh-CN.md) |
 
+## v0.7.0 usage analytics and CPA-integrated UI
+
+The embedded UI now follows CPA's light, white, and dark management themes and
+uses a compact local section rail for Key management, Overview, Analysis, and
+Request events. Native browser alerts and the redundant plugin logout action
+are removed. The Key list also supports resetting one or multiple keys' daily
+and weekly limits to zero.
+
+Overview charts request, token, and estimated-cost trends. Analysis breaks the
+same data down by model, Key ID, and provider. Request events expose only the
+Keyer Key ID—never the plaintext `cpa_…` credential—and include the timestamp,
+provider, requested/upstream model, result, billing mode, token detail, and
+estimated cost available from CPA's `usage.handle` payload. History is bounded
+to 90 days or 20,000 events, whichever is reached first.
+
+The state format is version `3`. Existing version 1/2 files load normally with
+an empty request history and are written as version 3 on the next persistence.
+Historical request events cannot be reconstructed from old aggregate-only
+state; collection starts with the first request handled by v0.7.0.
+
 ## v0.6.0 rename and management UI
 
 The plugin ID is now `cpa-keyer`, and the repository is
@@ -173,7 +193,7 @@ After the plugin loads:
 http://HOST:PORT/v0/resource/plugins/cpa-keyer/index.html
 ```
 
-Log in with the CPA management secret. The UI provides key management, direct model selection, price editing, budget/RPM policy, and per-model usage. The management secret remains in memory rather than `localStorage`.
+Log in with the CPA management secret. The UI provides key management, direct model selection, models.dev price synchronization, budget/RPM policy, per-model usage, overview charts, analysis, and request events. The management secret remains in memory rather than `localStorage`.
 
 Development:
 
@@ -192,6 +212,9 @@ Exact plugin paths under `/v0/management/plugins/cpa-keyer`:
 - `POST /keys/reset-rpm`;
 - `POST /keys/reset-usage` (clears daily and weekly usage for every key);
 - `GET /keys/usage`;
+- `GET /usage/overview`;
+- `GET /usage/analysis`;
+- `GET /usage/events`;
 - `GET /status`.
 
 Create a key; `plain_key` is returned once:

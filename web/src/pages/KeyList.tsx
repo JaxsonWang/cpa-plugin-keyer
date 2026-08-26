@@ -4,6 +4,7 @@ import {
   deleteKey,
   listKeys,
   resetAllUsage,
+  resetKeyLimits,
   resetRPM,
   rotateKey,
   setKeyEnabled,
@@ -36,7 +37,7 @@ export default function KeyList() {
   const [plain, setPlain] = useState<string | null>(null);
   const [plainTitle, setPlainTitle] = useState<string>("");
   const [pendingAction, setPendingAction] = useState<
-    { type: "rotate" | "delete" | "resetUsage"; id?: string } | null
+    { type: "rotate" | "delete" | "resetUsage" | "resetLimits" | "batchResetLimits"; id?: string; ids?: string[] } | null
   >(null);
   const [confirming, setConfirming] = useState(false);
 
@@ -92,6 +93,40 @@ export default function KeyList() {
     }
   };
 
+  const onResetLimits = async (ids: string[], batch: boolean) => {
+    if (ids.length === 0) return;
+
+    setError("");
+    setUpdatingIDs((current) => new Set([...current, ...ids]));
+    const results = await Promise.allSettled(ids.map((id) => resetKeyLimits(id)));
+    const updatedByID = new Map<string, KeyPublic>();
+    const failedIDs: string[] = [];
+    let firstFailure: unknown;
+
+    results.forEach((result, index) => {
+      const id = ids[index];
+      if (result.status === "fulfilled") updatedByID.set(id, result.value);
+      else {
+        failedIDs.push(id);
+        firstFailure ??= result.reason;
+      }
+    });
+
+    setKeys((current) => current.map((key) => updatedByID.get(key.id) ?? key));
+    if (batch) setSelectedIDs(new Set(failedIDs));
+    setUpdatingIDs((current) => {
+      const next = new Set(current);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
+
+    if (failedIDs.length > 0) {
+      setError(batch
+        ? t("keys.batchResetLimitsFailed", { count: failedIDs.length })
+        : `${failedIDs[0]}: ${errorMessage(firstFailure, t("keys.resetLimitsFailed"))}`);
+    }
+  };
+
   const remove = async (id: string) => {
     try {
       await deleteKey(id);
@@ -113,6 +148,12 @@ export default function KeyList() {
       if (pendingAction.type === "rotate" && pendingAction.id) await rotate(pendingAction.id);
       if (pendingAction.type === "delete" && pendingAction.id) await remove(pendingAction.id);
       if (pendingAction.type === "resetUsage") await resetUsage();
+      if (pendingAction.type === "resetLimits" && pendingAction.id) {
+        await onResetLimits([pendingAction.id], false);
+      }
+      if (pendingAction.type === "batchResetLimits") {
+        await onResetLimits(pendingAction.ids ?? [], true);
+      }
       setPendingAction(null);
     } finally {
       setConfirming(false);
@@ -123,13 +164,21 @@ export default function KeyList() {
     ? t("keys.rotateConfirm", { id: pendingAction.id ?? "" })
     : pendingAction?.type === "delete"
       ? t("keys.deleteConfirm", { id: pendingAction.id ?? "" })
-      : t("keys.resetUsageConfirm");
+      : pendingAction?.type === "resetLimits"
+        ? t("keys.resetLimitsConfirm", { id: pendingAction.id ?? "" })
+        : pendingAction?.type === "batchResetLimits"
+          ? t("keys.batchResetLimitsConfirm", { count: pendingAction.ids?.length ?? 0 })
+          : t("keys.resetUsageConfirm");
 
   const confirmLabel = pendingAction?.type === "rotate"
     ? t("keys.rotate")
     : pendingAction?.type === "delete"
       ? t("keys.delete")
-      : t("keys.resetUsage");
+      : pendingAction?.type === "resetLimits"
+        ? t("keys.resetLimits")
+        : pendingAction?.type === "batchResetLimits"
+          ? t("keys.batchResetLimits")
+          : t("keys.resetUsage");
 
   const onSetEnabled = async (id: string, enabled: boolean) => {
     setError("");
@@ -205,7 +254,10 @@ export default function KeyList() {
       <div className="fp-head mobile-hidden">
         <div className="page-heading">
           <span>{t("keys.eyebrow")}</span>
-          <h1>{t("header.keyList")}</h1>
+          <div className="page-heading-title">
+            <h1>{t("header.keyList")}</h1>
+            <span className="runtime-status"><i />{t("header.runtimeReady")}</span>
+          </div>
           <p>{t("keys.pageHint")}</p>
         </div>
         <div className="fp-actions">
@@ -261,6 +313,16 @@ export default function KeyList() {
             >
               {t("keys.batchDisable")}
             </button>
+            <button
+              className="btn sm danger-outline"
+              disabled={selectedIDs.size === 0 || busy}
+              onClick={() => setPendingAction({
+                type: "batchResetLimits",
+                ids: keys.filter((key) => selectedIDs.has(key.id)).map((key) => key.id),
+              })}
+            >
+              {t("keys.batchResetLimits")}
+            </button>
             <button className="btn sm mobile-only" disabled={loading || busy} onClick={load}>
               {t("keys.refresh")}
             </button>
@@ -292,7 +354,8 @@ export default function KeyList() {
             onSetEnabled={onSetEnabled}
             onDelete={(id) => setPendingAction({ type: "delete", id })}
             onRotate={(id) => setPendingAction({ type: "rotate", id })}
-            onReset={onReset}
+            onResetRPM={onReset}
+            onResetLimits={(id) => setPendingAction({ type: "resetLimits", id })}
           />
           <div className="card-stack mobile-only">
             {keys.map((key) => (
@@ -324,7 +387,10 @@ export default function KeyList() {
         open={pendingAction !== null}
         message={confirmMessage}
         confirmLabel={confirmLabel}
-        danger={pendingAction?.type === "delete" || pendingAction?.type === "resetUsage"}
+        danger={pendingAction?.type === "delete"
+          || pendingAction?.type === "resetUsage"
+          || pendingAction?.type === "resetLimits"
+          || pendingAction?.type === "batchResetLimits"}
         busy={confirming}
         onCancel={() => setPendingAction(null)}
         onConfirm={() => void confirmPendingAction()}
@@ -405,7 +471,8 @@ function KeyTable({
   onSetEnabled,
   onDelete,
   onRotate,
-  onReset,
+  onResetRPM,
+  onResetLimits,
 }: {
   keys: KeyPublic[];
   selectedIDs: Set<string>;
@@ -417,7 +484,8 @@ function KeyTable({
   onSetEnabled: (id: string, enabled: boolean) => void;
   onDelete: (id: string) => void;
   onRotate: (id: string) => void;
-  onReset: (id: string) => void;
+  onResetRPM: (id: string) => void;
+  onResetLimits: (id: string) => void;
 }) {
   const t = useT();
   return (
@@ -477,7 +545,8 @@ function KeyTable({
                   <Link className="btn sm" to={`/keys/${encodeURIComponent(key.id)}/edit`}>
                     {t("keys.edit")}
                   </Link>
-                  <button className="btn sm" onClick={() => onReset(key.id)}>{t("keys.resetRpm")}</button>
+                  <button className="btn sm" onClick={() => onResetRPM(key.id)}>{t("keys.resetRpm")}</button>
+                  <button className="btn sm danger-outline" onClick={() => onResetLimits(key.id)}>{t("keys.resetLimits")}</button>
                   <button className="btn sm" onClick={() => onRotate(key.id)}>{t("keys.rotate")}</button>
                   <button className="btn sm danger-outline" onClick={() => onDelete(key.id)}>{t("keys.delete")}</button>
                 </div>

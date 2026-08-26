@@ -10,6 +10,21 @@
 | **协议** | MIT |
 | **English** | [README.md](./README.md) |
 
+## v0.7.0 用量分析与 CPA 融合界面
+
+内嵌界面现已跟随 CPA 的浅色、白色和深色管理主题，并通过紧凑的插件内导航整合
+Key 列表、概览、分析与请求事件。原生浏览器弹窗和插件内部重复的退出功能已经移除；
+Key 列表支持将单个或批量 Key 的每日、每周用量上限重置为 `0`。
+
+概览页展示请求、Token 和预估费用趋势；分析页按模型、Key ID 与供应商拆分相同
+数据；请求事件只展示 Keyer Key ID，不保存或暴露明文 `cpa_…` 凭据，并记录 CPA
+`usage.handle` 实际提供的时间、供应商、请求/实际模型、结果、计费方式、Token 明细
+和预估费用。历史最多保留 90 天或 20,000 条事件，以先达到的限制为准。
+
+state 格式升级为版本 `3`。现有版本 1/2 文件可直接加载，请求历史初始为空，下一次
+正常持久化时写成版本 3。旧状态只有累计数据，无法反向还原逐请求事件；趋势和事件
+从 v0.7.0 处理的第一条新请求开始积累。
+
 ## v0.6.0 更名与管理界面
 
 插件 ID 已从 `cpa-key-policy` 改为 `cpa-keyer`，仓库改为
@@ -169,7 +184,7 @@ v0.5.0 state 版本为 `2`，加载旧配置/状态时自动迁移：
 http://HOST:PORT/v0/resource/plugins/cpa-keyer/index.html
 ```
 
-使用 CPA management secret 登录。网页保留 key 管理、真实模型选择、定价、预算/RPM 与按模型用量；管理密钥只保存在内存，不写 `localStorage`。
+使用 CPA management secret 登录。网页提供 Key 管理、真实模型选择、models.dev 价格同步、预算/RPM、按模型用量、概览图表、分析与请求事件；管理密钥只保存在内存，不写 `localStorage`。
 
 开发模式：
 
@@ -188,6 +203,9 @@ VITE_CPA_BASE=http://127.0.0.1:8317 npm run dev
 - `POST /keys/reset-rpm`；
 - `POST /keys/reset-usage`（清空所有 key 的每日与每周用量）；
 - `GET /keys/usage`；
+- `GET /usage/overview`；
+- `GET /usage/analysis`；
+- `GET /usage/events`；
 - `GET /status`。
 
 创建 key，`plain_key` 只返回一次：

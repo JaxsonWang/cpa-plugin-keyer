@@ -4,9 +4,9 @@
     {
       "id": "cpa-keyer",
       "name": "Keyer",
-      "description": "Plugin-owned downstream API keys with direct-model allowlists, RPM and USD budgets, usage accounting, and an embedded management UI.",
+      "description": "Plugin-owned downstream API keys with direct-model allowlists, RPM and USD budgets, pricing sync, usage analytics, and request events.",
       "author": "JaxsonWang",
-      "version": "0.6.1",
+      "version": "0.7.0",
       "repository": "https://github.com/JaxsonWang/cpa-plugin-keyer",
       "homepage": "https://github.com/JaxsonWang/cpa-plugin-keyer",
       "license": "MIT",

@@ -36,6 +36,14 @@ export async function setKeyEnabled(
   return patchKey({ id, enabled });
 }
 
+export async function resetKeyLimits(id: string): Promise<KeyPublic> {
+  return patchKey({
+    id,
+    daily_limit_usd: 0,
+    weekly_limit_usd: 0,
+  });
+}
+
 export async function deleteKey(id: string): Promise<void> {
   const c = apiClient();
   await c.delete(pluginPath("/keys"), { params: { id } });

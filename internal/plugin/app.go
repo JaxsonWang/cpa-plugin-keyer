@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/JaxsonWang/cpa-plugin-keyer/internal/plugin/web"
 	"github.com/JaxsonWang/cpa-plugin-keyer/internal/policy"
@@ -259,6 +262,9 @@ func (a *App) managementRegistration() ManagementRegistrationResponse {
 			{Method: http.MethodPost, Path: base + "/keys/reset-rpm", Description: "Reset one downstream CPA key RPM counter by id."},
 			{Method: http.MethodPost, Path: base + "/keys/reset-usage", Description: "Reset daily and weekly usage for all downstream CPA keys."},
 			{Method: http.MethodGet, Path: base + "/keys/usage", Description: "Per-model usage breakdown for one downstream CPA key by id."},
+			{Method: http.MethodGet, Path: base + "/usage/overview", Description: "Keyer request totals and time-series overview."},
+			{Method: http.MethodGet, Path: base + "/usage/analysis", Description: "Keyer usage breakdown by model, key and provider."},
+			{Method: http.MethodGet, Path: base + "/usage/events", Description: "Paginated Keyer request events identified by key id."},
 			{Method: http.MethodGet, Path: base + "/status", Description: "Show cpa-keyer runtime status."},
 		},
 		Resources: []ResourceRoute{
@@ -297,11 +303,56 @@ func (a *App) handleManagement(raw []byte) ([]byte, error) {
 		return OKEnvelope(a.resetUsage())
 	case req.Method == http.MethodGet && path == base+"/keys/usage":
 		return OKEnvelope(a.keyUsage(idFromRequest(req.Query, req.Body)))
+	case req.Method == http.MethodGet && path == base+"/usage/overview":
+		return OKEnvelope(jsonResponse(http.StatusOK, a.store.UsageOverview(usageFilterFromQuery(req.Query))))
+	case req.Method == http.MethodGet && path == base+"/usage/analysis":
+		return OKEnvelope(jsonResponse(http.StatusOK, a.store.UsageAnalysis(usageFilterFromQuery(req.Query))))
+	case req.Method == http.MethodGet && path == base+"/usage/events":
+		page := positiveQueryInt(req.Query, "page", 1)
+		pageSize := positiveQueryInt(req.Query, "page_size", 50)
+		return OKEnvelope(jsonResponse(http.StatusOK, a.store.UsageEvents(usageFilterFromQuery(req.Query), page, pageSize)))
 	case req.Method == http.MethodGet && path == base+"/status":
 		return OKEnvelope(jsonResponse(http.StatusOK, a.store.Status()))
 	default:
 		return OKEnvelope(jsonError(http.StatusNotFound, "not_found", "unknown management route"))
 	}
+}
+
+func usageFilterFromQuery(query url.Values) policy.UsageHistoryFilter {
+	now := time.Now().UTC()
+	duration := 7 * 24 * time.Hour
+	switch strings.ToLower(strings.TrimSpace(query.Get("range"))) {
+	case "24h":
+		duration = 24 * time.Hour
+	case "30d":
+		duration = 30 * 24 * time.Hour
+	case "90d", "all":
+		duration = 90 * 24 * time.Hour
+	}
+	filter := policy.UsageHistoryFilter{
+		Since:    now.Add(-duration),
+		Until:    now,
+		KeyID:    strings.TrimSpace(query.Get("key_id")),
+		Provider: strings.TrimSpace(query.Get("provider")),
+		Model:    strings.TrimSpace(query.Get("model")),
+	}
+	switch strings.ToLower(strings.TrimSpace(query.Get("result"))) {
+	case "success":
+		failed := false
+		filter.Failed = &failed
+	case "failed":
+		failed := true
+		filter.Failed = &failed
+	}
+	return filter
+}
+
+func positiveQueryInt(query url.Values, key string, fallback int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(query.Get(key)))
+	if err != nil || value < 1 {
+		return fallback
+	}
+	return value
 }
 
 type keyWriteRequest struct {

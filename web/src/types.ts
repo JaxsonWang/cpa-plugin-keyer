@@ -112,3 +112,91 @@ export interface StatusResponse {
   key_count: number;
   rpm_usage?: Record<string, unknown>;
 }
+
+export type UsageRange = "24h" | "7d" | "30d" | "90d";
+
+export interface UsageFilters {
+  key_ids: string[];
+  providers: string[];
+  models: string[];
+}
+
+export interface UsageTotals {
+  request_count: number;
+  success_count: number;
+  failure_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  cached_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+}
+
+export interface UsageTrendPoint {
+  bucket: string;
+  request_count: number;
+  success_count: number;
+  failure_count: number;
+  total_tokens: number;
+  cost_usd: number;
+}
+
+export interface UsageOverviewResponse {
+  from: string;
+  to: string;
+  granularity: "hour" | "day";
+  totals: UsageTotals;
+  series: UsageTrendPoint[];
+  filters: UsageFilters;
+}
+
+export interface UsageBreakdown {
+  name: string;
+  request_count: number;
+  success_count: number;
+  failure_count: number;
+  total_tokens: number;
+  cost_usd: number;
+}
+
+export interface UsageAnalysisResponse {
+  from: string;
+  to: string;
+  totals: UsageTotals;
+  by_model: UsageBreakdown[];
+  by_key: UsageBreakdown[];
+  by_provider: UsageBreakdown[];
+  filters: UsageFilters;
+}
+
+export interface UsageEvent {
+  id: number;
+  timestamp: string;
+  key_id: string;
+  provider?: string;
+  model: string;
+  upstream_model?: string;
+  failed: boolean;
+  billing_mode?: "tokens" | "per_call";
+  cost_available: boolean;
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens?: number;
+  cached_tokens?: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
+  total_tokens: number;
+}
+
+export interface UsageEventsResponse {
+  events: UsageEvent[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  filters: UsageFilters;
+}
