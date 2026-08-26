@@ -13,17 +13,30 @@
 ## v0.7.1 用量分析与 CPA 融合界面
 
 内嵌界面现已跟随 CPA 的浅色、白色和深色管理主题，并通过紧凑的插件内导航整合
-Key 列表、概览、分析与请求事件。原生浏览器弹窗和插件内部重复的退出功能已经移除；
+概览、请求事件、Key 列表与新建 Key。原生浏览器弹窗和插件内部重复的退出功能已经移除；
 Key 列表支持将单个或批量 Key 的每日、每周用量上限重置为 `0`。
 
-概览页展示请求、Token 和预估费用趋势；分析页按模型、Key ID 与供应商拆分相同
-数据；请求事件只展示 Keyer Key ID，不保存或暴露明文 `cpa_…` 凭据，并记录 CPA
-`usage.handle` 实际提供的时间、供应商、请求/实际模型、结果、计费方式、Token 明细
-和预估费用。历史最多保留 90 天或 20,000 条事件，以先达到的限制为准。
+概览页合并展示请求/Token 趋势，以及按模型、Key ID 和供应商统计的数据。请求事件
+保留 Key ID，并在来源中展示 `cpa_*****wxyz` 这样的脱敏 Key，始终不保存明文凭据；
+同时记录 CPA `usage.handle` 实际提供的时间、供应商、请求/实际模型、结果、计费方式、
+Token 明细和预估费用。历史保留 90 天，不再设置固定事件条数上限。
 
-state 格式升级为版本 `3`。现有版本 1/2 文件可直接加载，请求历史初始为空，下一次
-正常持久化时写成版本 3。旧状态只有累计数据，无法反向还原逐请求事件；趋势和事件
-从 v0.7.0 处理的第一条新请求开始积累。
+`state_file` 现在是唯一的 SQLite 数据库，统一保存 Key 配置、模型规则、每日/每周累计
+状态和逐请求事件；运行时不再使用 JSON state 文件持久化，也不会由 15 秒用量刷新器反复整文件
+重写。现有 JSON state 必须先备份并显式导入新的 `.db` 文件，核对 Key、累计状态和
+事件数量后再切换插件配置；完成校验前保留原 JSON 文件。
+
+请在 CPA 已停止或不再写入旧 JSON 时执行离线迁移：
+
+```bash
+go run ./cmd/cpa-keyer-state-migrate \
+  -source /CLIProxyAPI/data/cpa-key-policy-state.json \
+  -destination /CLIProxyAPI/data/cpa-key-policy-state.db
+```
+
+命令会在同一事务中导入 Key、归一化后的模型规则、每日/每周累计状态和保留期内的请求
+事件，随后校验完整状态与事件内容并执行 SQLite checkpoint。旧 JSON 不会被修改，目标
+数据库已存在时也不会覆盖。
 
 ## v0.6.0 更名与管理界面
 
@@ -33,15 +46,14 @@ state 格式升级为版本 `3`。现有版本 1/2 文件可直接加载，请�
 模型价格可通过“同步价格”从 `https://models.dev/api.json` 按精确模型名批量更新，
 新增/编辑 Key 在进入模型选择器前会保留全部表单草稿。
 
-更名不会改变 state 格式或现有 `cpa_…` Key。升级时先记录旧配置
-`plugins.configs.cpa-key-policy.state_file` 的实际值，再卸载旧插件并安装
-`cpa-keyer`，然后把同一个旧 state file 路径写入
-`plugins.configs.cpa-keyer.state_file`。不要先用新的默认空文件启动，否则界面只会
-显示一个全新的空状态；全新安装才使用默认的 `cpa-keyer-state.json`。
+更名不会改变现有 `cpa_…` Key。升级时先记录并备份旧配置
+`plugins.configs.cpa-key-policy.state_file` 指向的 JSON 文件，将其导入新的 SQLite
+数据库后，再把 `.db` 路径写入 `plugins.configs.cpa-keyer.state_file`。不要直接用
+新的空库替代旧状态；全新安装使用默认的 `cpa-keyer-state.db`。
 
 ## v0.5.3 旧 Key 兼容
 
-已有插件 Key 和 state file 继续有效，升级后无需新建或轮换 Key。前端鉴权现在只
+旧 JSON 导入 SQLite 后，已有插件 Key 继续有效，升级无需新建或轮换 Key。前端鉴权现在只
 确认 Key 身份，模型、RPM、每日/每周预算在请求拦截阶段执行。已启用 Key 超出
 限制时，会返回带 `rpm_exceeded`、`daily_exceeded` 或 `weekly_exceeded` 的
 结构化 `429`，不会再被 CPA 合并成 `401 Invalid API key`；模型未授权则返回
@@ -114,7 +126,7 @@ plugins:
     cpa-keyer:
       enabled: true
       priority: 10
-      state_file: "cpa-keyer-state.json"
+      state_file: "cpa-keyer-state.db"
 ```
 
 CPA 插件商店源：
@@ -127,14 +139,14 @@ https://raw.githubusercontent.com/JaxsonWang/cpa-plugin-keyer/main/registry.json
 `cpa-keyer`。如果已经安装官方源中的 `origin652` 版本，需要先卸载该插件
 条目再切换商店来源。卸载前先记录
 `plugins.configs.cpa-key-policy.state_file`，因为卸载会清除旧插件配置，但不会删除
-独立的 state file。安装 `JaxsonWang` 版本后，先恢复相同的 `state_file` 路径，
-再打开 cpa-keyer 页面核对原有 key 与用量数据。
+独立的 state file。先把旧 JSON 导入新的 SQLite 数据库，再将 `.db` 路径配置给
+`cpa-keyer`，最后打开页面核对原有 Key 与用量数据。
 
 规范的 key policy：
 
 ```yaml
 enabled: true
-state_file: ./cpa-keyer-state.json
+state_file: ./cpa-keyer-state.db
 
 keys:
   - id: team-a
@@ -156,11 +168,12 @@ keys:
 
 优先使用网页或管理 API 生成 key；明文只返回一次。插件 key 不要再加入 CPA 原生 `api-keys`，否则会形成另一条原生鉴权路径。
 
-已有 state file 时，其中的 keys 与 usage 是运行时数据源。种子格式见 [`config.example.yaml`](./config.example.yaml)。
+SQLite state file 一旦初始化，其中的 keys 与 usage 就是运行时数据源；[`config.example.yaml`](./config.example.yaml) 中的 Key 只用于初始化新的空数据库。
 
-## 从 v0.4.x 升级
+## 旧 v0.4.x 模型规则
 
-v0.5.0 state 版本为 `2`，加载旧配置/状态时自动迁移：
+显式把旧 JSON state 导入 SQLite 时，模型规则按以下方式归一化；仅把
+`state_file` 指向 JSON 文件不会自动执行迁移：
 
 - 旧直连规则的 `target_model` 迁移为 `{model: target_model}`；
 - 旧全局别名的每个 target 迁移成一个真实模型；
@@ -170,10 +183,10 @@ v0.5.0 state 版本为 `2`，加载旧配置/状态时自动迁移：
 - 保留定价；
 - 旧 `usage.by_alias` 作为历史 residual 保留，因为旧别名无法可靠归属到某一个 target model。
 
-升级后：
+导入后：
 
 - 客户端必须发送真实 CPA 模型名，旧别名请求名不再生效；
-- 如需回滚，首次使用 v0.5.0 前先备份 state file；
+- 核对 Key、累计用量和请求事件数量前保留原 JSON 备份；
 - 新建 Codex session 或重启客户端，旧 session 可能已经缓存 SSE fallback。
 
 ## 管理网页

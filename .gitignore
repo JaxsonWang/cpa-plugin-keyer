@@ -10,6 +10,10 @@
 .go-localappdata/
 cpa-keyer-state.json
 cpa-key-policy-state.json
+cpa-keyer-state.db
+cpa-key-policy-state.db
+*-state.db-wal
+*-state.db-shm
 coverage.out
 
 # CPA reference checkout used for research, not part of this project
@@ -39,3 +43,4 @@ scripts/patch-pi-mcp-sdk.mjs
 stitch_*.png
 nul
 .npm-cache/
+/.agents/

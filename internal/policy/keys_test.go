@@ -55,3 +55,9 @@ func TestPreviewKey(t *testing.T) {
 		t.Fatalf("PreviewKey() = %q", got)
 	}
 }
+
+func TestMaskKeyPreview(t *testing.T) {
+	if got := MaskKeyPreview("cpa_abc...vwxyz"); got != "cpa_*****wxyz" {
+		t.Fatalf("MaskKeyPreview() = %q", got)
+	}
+}

@@ -3,7 +3,6 @@ package policy
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -16,7 +15,7 @@ func newClockedStore(t *testing.T, now time.Time) (*Store, time.Time) {
 	store.SetClock(func() time.Time { return tm })
 	err := store.Configure(Config{
 		Enabled:   true,
-		StateFile: filepath.Join(t.TempDir(), "state.json"),
+		StateFile: filepath.Join(t.TempDir(), "state.db"),
 		Keys: []KeyConfig{
 			{
 				ID: "team-a", Enabled: true,
@@ -100,7 +99,7 @@ func TestUsageUnlimitedKeyNeverBlocked(t *testing.T) {
 	store.SetClock(func() time.Time { return now })
 	err := store.Configure(Config{
 		Enabled:   true,
-		StateFile: filepath.Join(t.TempDir(), "state.json"),
+		StateFile: filepath.Join(t.TempDir(), "state.db"),
 		Keys: []KeyConfig{{
 			ID: "free", Enabled: true,
 			KeyHash: hashForUsageTest(t, "cpa_free"),
@@ -127,7 +126,7 @@ func TestUsageUnpricedModelNotBilled(t *testing.T) {
 	store.SetClock(func() time.Time { return now })
 	err := store.Configure(Config{
 		Enabled:   true,
-		StateFile: filepath.Join(t.TempDir(), "state.json"),
+		StateFile: filepath.Join(t.TempDir(), "state.db"),
 		Keys: []KeyConfig{{
 			ID: "cheap", Enabled: true, DailyLimitUSD: 0.01,
 			KeyHash: hashForUsageTest(t, "cpa_cheap"),
@@ -151,7 +150,7 @@ func TestUsageStreamingBilledWhenUsageFrame(t *testing.T) {
 	store.SetClock(func() time.Time { return now })
 	err := store.Configure(Config{
 		Enabled:   true,
-		StateFile: filepath.Join(t.TempDir(), "state.json"),
+		StateFile: filepath.Join(t.TempDir(), "state.db"),
 		Keys: []KeyConfig{{
 			ID: "streamy", Enabled: true, DailyLimitUSD: 0.01,
 			KeyHash: hashForUsageTest(t, "cpa_stream"),
@@ -178,7 +177,7 @@ func TestUsageStreamingBilledWhenUsageFrame(t *testing.T) {
 	store2 := NewStore()
 	store2.SetClock(func() time.Time { return now })
 	if err := store2.Configure(Config{
-		Enabled: true, StateFile: filepath.Join(t.TempDir(), "state2.json"),
+		Enabled: true, StateFile: filepath.Join(t.TempDir(), "state2.db"),
 		Keys: []KeyConfig{{
 			ID: "streamy2", Enabled: true, DailyLimitUSD: 0.01,
 			KeyHash: hashForUsageTest(t, "cpa_stream2"),
@@ -224,7 +223,7 @@ func TestUsageSummaryReflectsUsage(t *testing.T) {
 
 func TestUsagePersistsAcrossRestart(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "state.json")
+	path := filepath.Join(dir, "state.db")
 	mk := func(clock func() time.Time) *Store {
 		s := NewStore()
 		s.SetClock(clock)
@@ -277,7 +276,7 @@ func newCacheStore(t *testing.T, now time.Time) *Store {
 	store.SetClock(func() time.Time { return now })
 	if err := store.Configure(Config{
 		Enabled:   true,
-		StateFile: filepath.Join(t.TempDir(), "state.json"),
+		StateFile: filepath.Join(t.TempDir(), "state.db"),
 		Keys: []KeyConfig{{
 			ID: "cache-key", Enabled: true,
 			KeyHash:    hashForUsageTest(t, "cpa_cache"),
@@ -384,7 +383,7 @@ func TestCacheStatsAdditiveExcludesCreation(t *testing.T) {
 // reload, so the UI keeps showing cache spend/hit-rate after a plugin restart.
 func TestCacheStatsPersistAcrossRestart(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "state.json")
+	path := filepath.Join(dir, "state.db")
 	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
 	mk := func() *Store {
 		s := NewStore()
@@ -429,7 +428,7 @@ func newPerCallStore(t *testing.T, perCallUSD, dailyLimit float64) *Store {
 	store.SetClock(func() time.Time { return now })
 	if err := store.Configure(Config{
 		Enabled:   true,
-		StateFile: filepath.Join(t.TempDir(), "state.json"),
+		StateFile: filepath.Join(t.TempDir(), "state.db"),
 		Keys: []KeyConfig{{
 			ID: "percall", Enabled: true, DailyLimitUSD: dailyLimit,
 			KeyHash: hashForUsageTest(t, "cpa_percall"),
@@ -494,7 +493,7 @@ func TestTokenModeFreeModelStillCounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Configure(Config{Enabled: true, StateFile: filepath.Join(t.TempDir(), "state.json"), Keys: []KeyConfig{{
+	if err := store.Configure(Config{Enabled: true, StateFile: filepath.Join(t.TempDir(), "state.db"), Keys: []KeyConfig{{
 		ID: "free", Enabled: true, KeyHash: hash,
 		Models: []ModelRule{{
 			Model:                    "fast",
@@ -534,7 +533,7 @@ func TestAllowModelsEndpointPerKey(t *testing.T) {
 	store := NewStore()
 	hashA, _ := HashKey("cpa_a")
 	hashB, _ := HashKey("cpa_b")
-	if err := store.Configure(Config{Enabled: true, StateFile: filepath.Join(t.TempDir(), "state2.json"), Keys: []KeyConfig{
+	if err := store.Configure(Config{Enabled: true, StateFile: filepath.Join(t.TempDir(), "state2.db"), Keys: []KeyConfig{
 		{ID: "hidden", Enabled: true, KeyHash: hashA, Models: []ModelRule{{Model: "fast"}}},
 		{ID: "open", Enabled: true, KeyHash: hashB, Models: []ModelRule{{Model: "fast"}}, AllowModelsEndpoint: true},
 	}}); err != nil {
@@ -594,7 +593,7 @@ func TestPerCallZeroStillCounts(t *testing.T) {
 // config appears as a residual with InConfig=false.
 func TestModelUsageBreakdown(t *testing.T) {
 	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
-	statePath := filepath.Join(t.TempDir(), "state.json")
+	statePath := filepath.Join(t.TempDir(), "state.db")
 	store := NewStore()
 	store.SetClock(func() time.Time { return now })
 	mkCfg := func(models []ModelRule) Config {
@@ -666,7 +665,7 @@ func TestModelUsageBreakdown(t *testing.T) {
 // TestModelUsageUnknownKey: a missing key id returns ok=false.
 func TestModelUsageUnknownKey(t *testing.T) {
 	store := NewStore()
-	if err := store.Configure(Config{Enabled: true, StateFile: filepath.Join(t.TempDir(), "s.json")}); err != nil {
+	if err := store.Configure(Config{Enabled: true, StateFile: filepath.Join(t.TempDir(), "s.db")}); err != nil {
 		t.Fatal(err)
 	}
 	_, _, ok := store.ModelUsageFor("nope")
@@ -679,10 +678,7 @@ func TestModelUsageUnknownKey(t *testing.T) {
 // single-window ByAlias format (map[string]UsageWindow) loads into the new
 // dual-window form: the old value lands in Daily, Weekly is zeroed, and the
 // key detail API surfaces it (InConfig=false if the alias is no longer configured).
-func TestAliasUsageLegacyStateMigrates(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "state.json")
-	// Hand-write a legacy state file: by_alias is map[string]UsageWindow.
+func TestAliasUsageLegacyStateDecodesForExplicitSQLiteMigration(t *testing.T) {
 	legacy := map[string]any{
 		"version": 1,
 		"keys": []map[string]any{{
@@ -696,7 +692,6 @@ func TestAliasUsageLegacyStateMigrates(t *testing.T) {
 			"team-a": map[string]any{
 				"daily":  map[string]any{"total_usd": 0.80, "window_start": "2026-06-29T00:00:00Z"},
 				"weekly": map[string]any{"total_usd": 0.80, "window_start": "2026-06-29T00:00:00Z"},
-				// Legacy single-window per-alias entry.
 				"by_alias": map[string]any{
 					"fast": map[string]any{"total_usd": 0.80, "call_count": 2, "input_tokens": 800000, "window_start": "2026-06-29T00:00:00Z"},
 				},
@@ -704,89 +699,31 @@ func TestAliasUsageLegacyStateMigrates(t *testing.T) {
 		},
 		"updated_at": "2026-06-29T10:00:00Z",
 	}
-	raw, _ := json.Marshal(legacy)
-	if err := os.WriteFile(path, raw, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
-	store := NewStore()
-	store.SetClock(func() time.Time { return now })
-	if err := store.Configure(Config{Enabled: true, StateFile: path}); err != nil {
-		t.Fatal(err)
-	}
-
-	// Configure persists the canonical v3 shape immediately, including the
-	// bounded request-history container introduced for reporting.
-	persistedRaw, err := os.ReadFile(path)
+	raw, err := json.Marshal(legacy)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var persisted State
-	if err := json.Unmarshal(persistedRaw, &persisted); err != nil {
+	var decoded State
+	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if persisted.Version != 3 || len(persisted.Keys) != 1 || len(persisted.Keys[0].Models) != 1 {
-		t.Fatalf("persisted state shape = %+v, want canonical v3 key", persisted)
+	if len(decoded.Keys) != 1 || decoded.Usage["team-a"] == nil {
+		t.Fatalf("decoded legacy state = %+v", decoded)
 	}
-	persistedRule := persisted.Keys[0].Models[0]
-	if persistedRule.Model != "gpt-5-codex" || persistedRule.Alias != "" || persistedRule.Provider != "" || persistedRule.TargetModel != "" || persistedRule.Group != "" {
-		t.Fatalf("persisted migrated rule = %+v, want direct model only", persistedRule)
+	legacyWindows := decoded.Usage["team-a"].ByAlias["fast"]
+	if !nearly(legacyWindows.Daily.TotalUSD, 0.80) || legacyWindows.Daily.CallCount != 2 || legacyWindows.Daily.InputTokens != 800_000 {
+		t.Fatalf("decoded legacy daily usage = %+v", legacyWindows.Daily)
 	}
-
-	_, rows, ok := store.ModelUsageFor("team-a")
-	if !ok {
-		t.Fatal("key not found after migration")
+	if legacyWindows.Weekly.TotalUSD != 0 || legacyWindows.Weekly.CallCount != 0 {
+		t.Fatalf("decoded legacy weekly usage = %+v, want zero", legacyWindows.Weekly)
 	}
-	if len(rows) != 2 || rows[0].Model != "fast" || rows[1].Model != "gpt-5-codex" {
-		t.Fatalf("rows = %+v, want legacy alias residual plus migrated direct model", rows)
-	}
-	fast := rows[0]
-	// The removed alias stays as an honest historical residual; the migrated
-	// direct model is the active policy row.
-	if fast.InConfig || !rows[1].InConfig {
-		t.Fatalf("legacy/direct config markers are wrong: %+v", rows)
-	}
-	if !nearly(fast.Daily.TotalUSD, 0.80) || fast.Daily.CallCount != 2 || fast.Daily.InputTokens != 800_000 {
-		t.Fatalf("migrated daily = %+v, want 0.80/2/800000", fast.Daily)
-	}
-	// Weekly zeroed by migration (no legacy weekly per-alias data existed).
-	if fast.Weekly.TotalUSD != 0 || fast.Weekly.CallCount != 0 {
-		t.Fatalf("migrated weekly should be zero: %+v", fast.Weekly)
-	}
-	// Persisting then reloading keeps the new dual-window shape (round-trip).
-	if err := store.FlushUsage(); err != nil {
+	cfg := Config{Enabled: true, Keys: decoded.Keys, Aliases: decoded.Aliases}
+	if err := normalizeConfig(&cfg); err != nil {
 		t.Fatal(err)
 	}
-	raw2, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var check struct {
-		Usage map[string]struct {
-			ByAlias map[string]struct {
-				Daily  UsageWindow `json:"daily"`
-				Weekly UsageWindow `json:"weekly"`
-			} `json:"by_alias"`
-		} `json:"usage"`
-	}
-	if err := json.Unmarshal(raw2, &check); err != nil {
-		t.Fatal(err)
-	}
-	a, ok := check.Usage["team-a"].ByAlias["fast"]
-	if !ok {
-		t.Fatal("fast not in re-persisted by_alias")
-	}
-	if !nearly(a.Daily.TotalUSD, 0.80) || !nearly(a.Weekly.TotalUSD, 0.80) {
-		// After the flush, the weekly alias window was populated by the
-		// post-migration in-memory state (RecordCost wrote both daily+weekly on
-		// the original record, but the legacy file only had the single window).
-		// The migration put 0.80 into Daily only; Weekly stays 0 here until a
-		// new write occurs. Accept either: Daily must be 0.80.
-		t.Logf("round-trip by_alias fast = %+v", a)
-	}
-	if !nearly(a.Daily.TotalUSD, 0.80) {
-		t.Fatalf("round-trip daily = %v, want 0.80", a.Daily.TotalUSD)
+	rule := cfg.Keys[0].Models[0]
+	if rule.Model != "gpt-5-codex" || rule.Alias != "" || rule.Provider != "" || rule.TargetModel != "" || rule.Group != "" {
+		t.Fatalf("normalized legacy model = %+v", rule)
 	}
 }
 
@@ -797,7 +734,7 @@ func TestCallCountIncrementedTokenMode(t *testing.T) {
 	store.SetClock(func() time.Time { return now })
 	if err := store.Configure(Config{
 		Enabled:   true,
-		StateFile: filepath.Join(t.TempDir(), "state.json"),
+		StateFile: filepath.Join(t.TempDir(), "state.db"),
 		Keys: []KeyConfig{{
 			ID: "tok", Enabled: true,
 			KeyHash: hashForUsageTest(t, "cpa_tok"),

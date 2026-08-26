@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -21,7 +20,9 @@ type Store struct {
 	keysByHash map[string]*KeyConfig
 	limiter    *RateLimiter
 	usage      *usageLedger
-	history    *usageHistory
+	database   *stateDatabase
+	now        func() time.Time
+	historyErr error
 	flusher    *usageFlusher
 }
 
@@ -46,7 +47,7 @@ func NewStore() *Store {
 		keysByHash: make(map[string]*KeyConfig),
 		limiter:    NewRateLimiter(),
 		usage:      newUsageLedger(time.Now),
-		history:    newUsageHistory(time.Now),
+		now:        time.Now,
 	}
 }
 
@@ -55,9 +56,12 @@ func (s *Store) SetClock(now func() time.Time) {
 		return
 	}
 	s.mu.Lock()
+	s.now = now
 	s.limiter = NewRateLimiterWithClock(now)
 	s.usage = newUsageLedger(now)
-	s.history = newUsageHistory(now)
+	if s.database != nil {
+		s.database.setClock(now)
+	}
 	s.mu.Unlock()
 }
 
@@ -74,38 +78,40 @@ func (s *Store) Configure(cfg Config) error {
 
 	// Persist usage to the previous state file before replacing the in-memory
 	// store. This keeps reconfigure from losing the latest accounting window.
-	s.StopUsageFlusher()
-
-	keys := cfg.Keys
-	var loadedUsage map[string]*UsageState
-	var loadedHistory UsageHistoryState
-	firstBoot := false
-	migratedState := false
-	if state, loadErr := LoadState(statePath); loadErr == nil {
-		migratedState = stateNeedsModelMigration(state)
-		merged := Config{
-			Enabled:   cfg.Enabled,
-			StateFile: cfg.StateFile,
-			Keys:      state.Keys,
-			Aliases:   state.Aliases,
-		}
-		if len(merged.Aliases) == 0 {
-			merged.Aliases = cfg.Aliases
-		}
-		if err := normalizeConfig(&merged); err != nil {
-			return fmt.Errorf("load state: %w", err)
-		}
-		keys = merged.Keys
-		loadedUsage = state.Usage
-		loadedHistory = state.History
-	} else if !errors.Is(loadErr, os.ErrNotExist) {
-		return fmt.Errorf("load state: %w", loadErr)
-	} else {
-		firstBoot = true
+	if err := s.StopUsageFlusher(); err != nil {
+		return fmt.Errorf("flush previous state database: %w", err)
 	}
 
+	s.mu.RLock()
+	clockNow := s.now
+	s.mu.RUnlock()
+	if clockNow == nil {
+		clockNow = time.Now
+	}
+	database, err := openStateDatabase(statePath, clockNow)
+	if err != nil {
+		return err
+	}
+	keys, loadedUsage, initialized, err := database.loadState()
+	if err != nil {
+		_ = database.close()
+		return err
+	}
+	if !initialized {
+		keys = cfg.Keys
+		loadedUsage = make(map[string]*UsageState)
+	}
+	loadedConfig := Config{Enabled: cfg.Enabled, StateFile: cfg.StateFile, Keys: keys}
+	if err := normalizeConfig(&loadedConfig); err != nil {
+		_ = database.close()
+		return fmt.Errorf("load state database: %w", err)
+	}
+	keys = loadedConfig.Keys
+
 	next := make(map[string]*KeyConfig, len(keys))
-	now := time.Now().UTC()
+	preparedKeys := make([]KeyConfig, 0, len(keys))
+	maskedPreviews := make(map[string]string, len(keys))
+	now := clockNow().UTC()
 	for i := range keys {
 		item := keys[i]
 		if item.CreatedAt.IsZero() {
@@ -115,13 +121,26 @@ func (s *Store) Configure(cfg Config) error {
 			item.UpdatedAt = item.CreatedAt
 		}
 		next[item.ID] = &item
+		preparedKeys = append(preparedKeys, item)
+		maskedPreviews[strings.ToLower(item.ID)] = MaskKeyPreview(item.KeyPreview)
+	}
+	sort.Slice(preparedKeys, func(i, j int) bool { return preparedKeys[i].ID < preparedKeys[j].ID })
+	nextUsage := newUsageLedger(clockNow)
+	nextUsage.loadFromState(loadedUsage)
+	if err := database.saveState(preparedKeys, nextUsage.snapshot()); err != nil {
+		_ = database.close()
+		if !initialized {
+			return fmt.Errorf("seed state database: %w", err)
+		}
+		return fmt.Errorf("normalize state database: %w", err)
+	}
+	if err := database.backfillKeyPreviews(maskedPreviews); err != nil {
+		_ = database.close()
+		return err
 	}
 
 	s.mu.Lock()
-	if s.flusher != nil {
-		s.flusher.stop()
-		s.flusher = nil
-	}
+	oldDatabase := s.database
 	s.enabled = cfg.Enabled
 	s.statePath = statePath
 	s.keys = next
@@ -129,58 +148,14 @@ func (s *Store) Configure(cfg Config) error {
 	if s.limiter == nil {
 		s.limiter = NewRateLimiter()
 	}
-	clockNow := time.Now
-	if s.usage != nil && s.usage.now != nil {
-		clockNow = s.usage.now
-	}
-	s.usage = newUsageLedger(clockNow)
-	s.usage.loadFromState(loadedUsage)
-	s.history = newUsageHistory(clockNow)
-	s.history.loadFromState(loadedHistory)
-	baseKeys := s.keysSnapshotLocked()
-	baseUsage := s.usageSnapshotLocked()
-	baseHistory := s.historySnapshotLocked()
+	s.usage = nextUsage
+	s.database = database
+	s.historyErr = nil
 	s.mu.Unlock()
-
-	if firstBoot || migratedState {
-		if err := s.saveState(statePath, baseKeys, baseUsage, baseHistory); err != nil {
-			if migratedState {
-				return fmt.Errorf("persist migrated state: %w", err)
-			}
-			return fmt.Errorf("seed state: %w", err)
-		}
+	if oldDatabase != nil {
+		_ = oldDatabase.close()
 	}
 	return nil
-}
-
-func stateNeedsModelMigration(state *State) bool {
-	if state == nil {
-		return false
-	}
-	if state.Version < 2 || len(state.Aliases) > 0 {
-		return true
-	}
-	for _, key := range state.Keys {
-		if len(key.Aliases) > 0 {
-			return true
-		}
-		for _, rule := range key.Models {
-			if strings.TrimSpace(rule.Model) == "" ||
-				strings.TrimSpace(rule.Alias) != "" ||
-				strings.TrimSpace(rule.Provider) != "" ||
-				strings.TrimSpace(rule.TargetModel) != "" ||
-				strings.TrimSpace(rule.Group) != "" {
-				return true
-			}
-			if normalizePrice(rule.InputPricePerMillion) != rule.InputPricePerMillion ||
-				normalizePrice(rule.OutputPricePerMillion) != rule.OutputPricePerMillion ||
-				normalizePrice(rule.CacheReadPricePerMillion) != rule.CacheReadPricePerMillion ||
-				normalizePrice(rule.PerCallUSD) != rule.PerCallUSD {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func (s *Store) Enabled() bool {
@@ -197,9 +172,9 @@ func (s *Store) runtimeComponents() (*RateLimiter, *usageLedger) {
 	return limiter, usage
 }
 
-func (s *Store) runtimeHistory() *usageHistory {
+func (s *Store) runtimeHistory() *stateDatabase {
 	s.mu.RLock()
-	history := s.history
+	history := s.database
 	s.mu.RUnlock()
 	return history
 }
@@ -215,13 +190,15 @@ func (s *Store) StatePath() string {
 // key that exceeds a policy limit remains authenticated and can receive the
 // real 403/429 policy response from request interception.
 func (s *Store) AuthenticateKey(headers http.Header, query map[string][]string) AuthDecision {
-	key, enabled := s.findBySecretWhenEnabled(ExtractAPIKey(headers, query))
+	rawKey := ExtractAPIKey(headers, query)
+	key, enabled := s.findBySecretWhenEnabled(rawKey)
 	if !enabled {
 		return AuthDecision{Reason: "plugin_disabled"}
 	}
 	if key == nil {
 		return AuthDecision{Reason: "unknown_key"}
 	}
+	key = s.learnKeyPreview(key, rawKey)
 	decision := AuthDecision{Known: true, KeyID: key.ID, Principal: key.ID}
 	if !key.Enabled {
 		decision.Reason = "key_disabled"
@@ -271,6 +248,7 @@ func (s *Store) authorize(headers http.Header, query map[string][]string, reques
 	if key == nil {
 		return AuthDecision{Reason: "unknown_key"}
 	}
+	key = s.learnKeyPreview(key, rawKey)
 	decision := AuthDecision{
 		Known:     true,
 		KeyID:     key.ID,
@@ -374,6 +352,7 @@ func (s *Store) RecordUsage(apiKeyOrID, requestedModel, model string, failed boo
 	history := s.runtimeHistory()
 	event := UsageEvent{
 		KeyID:               key.ID,
+		KeyPreview:          MaskKeyPreview(key.KeyPreview),
 		Provider:            detail.Provider,
 		Model:               resolved,
 		UpstreamModel:       upstreamModel,
@@ -388,7 +367,11 @@ func (s *Store) RecordUsage(apiKeyOrID, requestedModel, model string, failed boo
 	}
 	recordEvent := func() {
 		if history != nil {
-			history.record(event)
+			if err := history.record(event); err != nil {
+				s.setHistoryError(err)
+			} else {
+				s.setHistoryError(nil)
+			}
 		}
 	}
 	rule, ok := key.ModelRuleForModel(resolved)
@@ -479,28 +462,41 @@ func (s *Store) ModelUsageFor(keyID string) (KeyConfig, []ModelUsageEntry, bool)
 	return *key, usage.ModelUsage(*key), true
 }
 
-func (s *Store) UsageOverview(filter UsageHistoryFilter) UsageOverview {
+func (s *Store) UsageOverview(filter UsageHistoryFilter) (UsageOverview, error) {
+	if err := s.currentHistoryError(); err != nil {
+		return UsageOverview{}, err
+	}
 	history := s.runtimeHistory()
 	if history == nil {
-		history = newUsageHistory(time.Now)
+		return UsageOverview{}, errors.New("state database is not configured")
 	}
 	return history.overview(filter)
 }
 
-func (s *Store) UsageAnalysis(filter UsageHistoryFilter) UsageAnalysis {
+func (s *Store) UsageAnalysis(filter UsageHistoryFilter) (UsageAnalysis, error) {
+	if err := s.currentHistoryError(); err != nil {
+		return UsageAnalysis{}, err
+	}
 	history := s.runtimeHistory()
 	if history == nil {
-		history = newUsageHistory(time.Now)
+		return UsageAnalysis{}, errors.New("state database is not configured")
 	}
 	return history.analysis(filter)
 }
 
-func (s *Store) UsageEvents(filter UsageHistoryFilter, page, pageSize int) UsageEventPage {
+func (s *Store) UsageEvents(filter UsageHistoryFilter, page, pageSize int) (UsageEventPage, error) {
+	if err := s.currentHistoryError(); err != nil {
+		return UsageEventPage{}, err
+	}
 	history := s.runtimeHistory()
 	if history == nil {
-		return UsageEventPage{Events: []UsageEvent{}, Page: 1, PageSize: pageSize, Filters: UsageFilters{}}
+		return UsageEventPage{}, errors.New("state database is not configured")
 	}
 	return history.eventPage(filter, page, pageSize)
+}
+
+func (s *Store) UsageStoreError() error {
+	return s.currentHistoryError()
 }
 
 func (s *Store) FindByAPIKey(raw string) *KeyConfig {
@@ -539,6 +535,67 @@ func (s *Store) findBySecretWhenEnabled(raw string) (*KeyConfig, bool) {
 		return nil, false
 	}
 	return copyKey(s.keysByHash[strings.ToLower(strings.TrimSpace(hash))]), true
+}
+
+func (s *Store) learnKeyPreview(key *KeyConfig, rawKey string) *KeyConfig {
+	if key == nil || strings.TrimSpace(key.KeyPreview) != "" || strings.TrimSpace(rawKey) == "" {
+		return key
+	}
+	preview := PreviewKey(rawKey)
+	if strings.TrimSpace(preview) == "" {
+		return key
+	}
+
+	s.updateMu.Lock()
+	defer s.updateMu.Unlock()
+	s.mu.RLock()
+	current := s.keys[key.ID]
+	database := s.database
+	if current == nil || !strings.EqualFold(strings.TrimSpace(current.KeyHash), strings.TrimSpace(key.KeyHash)) {
+		s.mu.RUnlock()
+		return key
+	}
+	if strings.TrimSpace(current.KeyPreview) != "" {
+		result := copyKey(current)
+		s.mu.RUnlock()
+		return result
+	}
+	s.mu.RUnlock()
+	if database == nil {
+		return key
+	}
+
+	s.persistMu.Lock()
+	changed, err := database.updateKeyPreview(key.ID, key.KeyHash, preview)
+	s.persistMu.Unlock()
+	if err != nil {
+		s.setHistoryError(err)
+		return key
+	}
+	if !changed {
+		return key
+	}
+	s.mu.Lock()
+	current = s.keys[key.ID]
+	if current != nil && strings.TrimSpace(current.KeyPreview) == "" && strings.EqualFold(strings.TrimSpace(current.KeyHash), strings.TrimSpace(key.KeyHash)) {
+		current.KeyPreview = preview
+		current.UpdatedAt = time.Now().UTC()
+		key = copyKey(current)
+	}
+	s.mu.Unlock()
+	return key
+}
+
+func (s *Store) setHistoryError(err error) {
+	s.mu.Lock()
+	s.historyErr = err
+	s.mu.Unlock()
+}
+
+func (s *Store) currentHistoryError() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.historyErr
 }
 
 func (s *Store) findByID(id string) *KeyConfig {
@@ -643,12 +700,11 @@ func (s *Store) UpsertKey(input KeyConfig, persist bool) error {
 	s.keys[key.ID] = &key
 	s.rebuildKeysByHashLocked()
 	keys := s.keysSnapshotLocked()
-	path := s.statePath
 	usage := s.usageSnapshotLocked()
-	history := s.historySnapshotLocked()
+	database := s.database
 	s.mu.Unlock()
 	if persist {
-		return s.saveState(path, keys, usage, history)
+		return s.saveState(database, keys, usage)
 	}
 	return nil
 }
@@ -669,8 +725,8 @@ func (s *Store) DeleteKey(id string) error {
 	s.rebuildKeysByHashLocked()
 	keys := s.keysSnapshotLocked()
 	usage := s.usageSnapshotLocked()
-	history := s.historySnapshotLocked()
-	path := s.statePath
+	delete(usage, id)
+	database := s.database
 	limiter := s.limiter
 	ledger := s.usage
 	s.mu.Unlock()
@@ -680,7 +736,7 @@ func (s *Store) DeleteKey(id string) error {
 	if ledger != nil {
 		ledger.resetUsage(id)
 	}
-	return s.saveState(path, keys, usage, history)
+	return s.saveState(database, keys, usage)
 }
 
 func (s *Store) RotateKey(id string) (string, KeyConfig, error) {
@@ -711,14 +767,13 @@ func (s *Store) RotateKey(id string) (string, KeyConfig, error) {
 	s.rebuildKeysByHashLocked()
 	keys := s.keysSnapshotLocked()
 	usage := s.usageSnapshotLocked()
-	history := s.historySnapshotLocked()
-	path := s.statePath
+	database := s.database
 	limiter := s.limiter
 	s.mu.Unlock()
 	if limiter != nil {
 		limiter.Reset(id)
 	}
-	if err := s.saveState(path, keys, usage, history); err != nil {
+	if err := s.saveState(database, keys, usage); err != nil {
 		return "", KeyConfig{}, err
 	}
 	return plain, result, nil
@@ -742,13 +797,6 @@ func (s *Store) usageSnapshotLocked() map[string]*UsageState {
 	return s.usage.snapshot()
 }
 
-func (s *Store) historySnapshotLocked() UsageHistoryState {
-	if s.history == nil {
-		return UsageHistoryState{}
-	}
-	return s.history.snapshot()
-}
-
 func (s *Store) FlushUsage() error {
 	// Serialize the snapshot with persistence. Taking the snapshot before this
 	// lock could let an older background flush overwrite a manual usage reset.
@@ -756,14 +804,13 @@ func (s *Store) FlushUsage() error {
 	defer s.persistMu.Unlock()
 
 	s.mu.RLock()
-	path := s.statePath
 	usage := s.usageSnapshotLocked()
-	history := s.historySnapshotLocked()
+	database := s.database
 	s.mu.RUnlock()
-	if strings.TrimSpace(path) == "" {
+	if database == nil {
 		return nil
 	}
-	return SaveRuntimeState(path, usage, history)
+	return database.saveUsage(usage)
 }
 
 // ResetAllUsage clears every key's daily and weekly usage and persists the
@@ -777,12 +824,11 @@ func (s *Store) ResetAllUsage() error {
 	defer s.persistMu.Unlock()
 
 	s.mu.RLock()
-	path := s.statePath
 	usage := s.usage
-	history := s.historySnapshotLocked()
+	database := s.database
 	s.mu.RUnlock()
-	if strings.TrimSpace(path) != "" {
-		if err := SaveRuntimeState(path, make(map[string]*UsageState), history); err != nil {
+	if database != nil {
+		if err := database.saveUsage(make(map[string]*UsageState)); err != nil {
 			return err
 		}
 	}
@@ -792,10 +838,13 @@ func (s *Store) ResetAllUsage() error {
 	return nil
 }
 
-func (s *Store) saveState(path string, keys []KeyConfig, usage map[string]*UsageState, history UsageHistoryState) error {
+func (s *Store) saveState(database *stateDatabase, keys []KeyConfig, usage map[string]*UsageState) error {
+	if database == nil {
+		return errors.New("state database is not configured")
+	}
 	s.persistMu.Lock()
 	defer s.persistMu.Unlock()
-	return SaveStateWithHistory(path, keys, usage, history)
+	return database.saveState(keys, usage)
 }
 
 type usageFlusher struct {
@@ -819,7 +868,7 @@ func (s *Store) StartUsageFlusher() func() {
 	return flusher.stop
 }
 
-func (s *Store) StopUsageFlusher() {
+func (s *Store) StopUsageFlusher() error {
 	s.mu.Lock()
 	flusher := s.flusher
 	s.flusher = nil
@@ -828,7 +877,19 @@ func (s *Store) StopUsageFlusher() {
 		flusher.stop()
 		<-flusher.doneCh
 	}
-	_ = s.FlushUsage()
+	return s.FlushUsage()
+}
+
+func (s *Store) Close() error {
+	flushErr := s.StopUsageFlusher()
+	s.mu.Lock()
+	database := s.database
+	s.database = nil
+	s.mu.Unlock()
+	if database == nil {
+		return flushErr
+	}
+	return errors.Join(flushErr, database.close())
 }
 
 func (f *usageFlusher) stop() {
@@ -855,6 +916,7 @@ func (s *Store) Status() map[string]any {
 	status := map[string]any{
 		"enabled":    s.Enabled(),
 		"state_file": s.StatePath(),
+		"storage":    "sqlite",
 		"key_count":  len(keys),
 	}
 	if limiter != nil {

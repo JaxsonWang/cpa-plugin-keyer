@@ -245,7 +245,7 @@ func TestRecordUsageBillsFromParsedTokens(t *testing.T) {
 	store.SetClock(func() time.Time { return now })
 	if err := store.Configure(Config{
 		Enabled:   true,
-		StateFile: filepath.Join(t.TempDir(), "state.json"),
+		StateFile: filepath.Join(t.TempDir(), "state.db"),
 		Keys: []KeyConfig{{
 			ID: "streamy", Enabled: true, DailyLimitUSD: 1.00,
 			KeyHash: hashForUsageTest(t, "cpa_stream"),
@@ -278,7 +278,7 @@ func TestRecordUsageUnknownKeyZeroCost(t *testing.T) {
 	store.SetClock(func() time.Time { return now })
 	if err := store.Configure(Config{
 		Enabled:   true,
-		StateFile: filepath.Join(t.TempDir(), "state.json"),
+		StateFile: filepath.Join(t.TempDir(), "state.db"),
 		Keys: []KeyConfig{{
 			ID: "k", Enabled: true, DailyLimitUSD: 0.01,
 			KeyHash: hashForUsageTest(t, "cpa_known"),
@@ -305,7 +305,7 @@ func TestRecordUsageMatchesByID(t *testing.T) {
 	store.SetClock(func() time.Time { return now })
 	if err := store.Configure(Config{
 		Enabled:   true,
-		StateFile: filepath.Join(t.TempDir(), "state.json"),
+		StateFile: filepath.Join(t.TempDir(), "state.db"),
 		Keys: []KeyConfig{{
 			ID: "team-x", Enabled: true, DailyLimitUSD: 0.50,
 			KeyHash: hashForUsageTest(t, "cpa_secret_xyz"),

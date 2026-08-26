@@ -42,7 +42,7 @@ export default function Login() {
     <div className="login-page">
       <div className="lp-brand">
         <div className="lp-monogram">CK</div>
-        <div className="lp-title">cpa-keyer</div>
+        <div className="lp-title">Keyer</div>
         <div className="lp-sub">{t("login.subTitle")}</div>
       </div>
       <form className="card lp-card" onSubmit={submit}>

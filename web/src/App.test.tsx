@@ -16,7 +16,6 @@ vi.mock("./pages/KeyUsage", () => ({ default: () => <div>Usage content</div> }))
 vi.mock("./pages/ModelPick", () => ({ default: () => <div>Model picker content</div> }));
 vi.mock("./pages/Login", () => ({ default: () => <div>Login content</div> }));
 vi.mock("./pages/UsageOverview", () => ({ default: () => <div>Overview content</div> }));
-vi.mock("./pages/UsageAnalysis", () => ({ default: () => <div>Analysis content</div> }));
 vi.mock("./pages/RequestEvents", () => ({ default: () => <div>Events content</div> }));
 
 import App from "./App";
@@ -58,9 +57,9 @@ describe("App shell", () => {
     expect(container.querySelector(".app")?.classList.contains("is-embedded")).toBe(true);
     expect(container.querySelector(".topnav")).toBeNull();
     expect(container.querySelector(".workspace-header")).toBeNull();
-    expect(container.querySelector(".section-nav")?.textContent).toContain("概览");
-    expect(container.querySelector(".section-nav")?.textContent).toContain("分析");
-    expect(container.querySelector(".section-nav")?.textContent).toContain("请求事件");
+    const sectionLinks = Array.from(container.querySelectorAll(".section-nav a"), (link) => link.textContent);
+    expect(sectionLinks).toEqual(["概览", "请求事件", "Key 列表"]);
+    expect(container.querySelector(".section-nav")?.textContent).not.toContain("分析");
     expect(container.textContent).toContain("Key list content");
   });
 
@@ -70,6 +69,11 @@ describe("App shell", () => {
     expect(container.querySelector(".app")?.classList.contains("is-embedded")).toBe(false);
     expect(container.querySelector(".topnav")).not.toBeNull();
     expect(container.querySelector(".workspace-header")).not.toBeNull();
+    expect(container.querySelector(".tn-title")?.textContent).toBe("Keyer");
+    expect(container.querySelector(".tn-version")?.textContent).toBe("KEYER · v0.7.1");
+    const topLinks = Array.from(container.querySelectorAll(".topnav-actions a"), (link) => link.textContent);
+    expect(topLinks).toEqual(["概览", "请求事件", "Key 列表", "新建 Key"]);
+    expect(container.querySelectorAll(".topnav-actions svg")).toHaveLength(4);
     expect(container.textContent).not.toContain("退出");
   });
 });

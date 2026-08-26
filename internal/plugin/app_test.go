@@ -21,7 +21,7 @@ func configureTestApp(t *testing.T, rpm int) (*App, string) {
 	}
 	yaml := []byte(`
 enabled: true
-state_file: "` + filepath.ToSlash(filepath.Join(t.TempDir(), "state.json")) + `"
+state_file: "` + filepath.ToSlash(filepath.Join(t.TempDir(), "state.db")) + `"
 keys:
   - id: team-a
     name: Team A
@@ -588,7 +588,6 @@ func TestManagementUsageReportingUsesKeyIDAndRealUsageFields(t *testing.T) {
 	if _, err := app.HandleMethod(MethodUsageHandle, failedRequest); err != nil {
 		t.Fatal(err)
 	}
-
 	callManagement := func(path string) ManagementResponse {
 		t.Helper()
 		request, _ := json.Marshal(ManagementRequest{
@@ -630,7 +629,7 @@ func TestManagementUsageReportingUsesKeyIDAndRealUsageFields(t *testing.T) {
 	if err := json.Unmarshal(eventsResponse.Body, &events); err != nil {
 		t.Fatal(err)
 	}
-	if events.Total != 2 || events.Events[0].KeyID != "team-a" || events.Events[0].Provider != "codex" {
+	if events.Total != 2 || events.Events[0].KeyID != "team-a" || events.Events[0].KeyPreview != policy.MaskKeyPreview(policy.PreviewKey(plain)) || events.Events[0].Provider != "codex" {
 		t.Fatalf("events = %+v", events)
 	}
 	if strings.Contains(string(eventsResponse.Body), plain) || strings.Contains(string(eventsResponse.Body), "cpa_plugin_test") {
@@ -669,11 +668,13 @@ func TestManagementResetUsageClearsDailyAndWeeklyAndPersists(t *testing.T) {
 	if after.DailyUSD != 0 || after.WeeklyUSD != 0 || after.DailyCallCount != 0 || after.WeeklyCallCount != 0 {
 		t.Fatalf("usage after reset = %+v, want zero daily and weekly usage", after)
 	}
-	persisted, err := policy.LoadState(app.Store().StatePath())
-	if err != nil {
+	reloaded := policy.NewStore()
+	t.Cleanup(func() { _ = reloaded.Close() })
+	if err := reloaded.Configure(policy.Config{Enabled: true, StateFile: app.Store().StatePath()}); err != nil {
 		t.Fatal(err)
 	}
-	if len(persisted.Usage) != 0 {
-		t.Fatalf("persisted usage after reset = %+v, want empty", persisted.Usage)
+	persisted := reloaded.UsageSummaryFor(reloaded.Keys()[0])
+	if persisted.DailyUSD != 0 || persisted.WeeklyUSD != 0 || persisted.DailyCallCount != 0 || persisted.WeeklyCallCount != 0 {
+		t.Fatalf("persisted usage after reset = %+v, want empty", persisted)
 	}
 }

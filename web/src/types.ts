@@ -140,6 +140,12 @@ export interface UsageTrendPoint {
   request_count: number;
   success_count: number;
   failure_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  cached_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
   total_tokens: number;
   cost_usd: number;
 }
@@ -158,6 +164,12 @@ export interface UsageBreakdown {
   request_count: number;
   success_count: number;
   failure_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  cached_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
   total_tokens: number;
   cost_usd: number;
 }
@@ -176,6 +188,7 @@ export interface UsageEvent {
   id: number;
   timestamp: string;
   key_id: string;
+  key_preview?: string;
   provider?: string;
   model: string;
   upstream_model?: string;

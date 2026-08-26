@@ -174,7 +174,7 @@ type State struct {
 }
 
 func DefaultConfig() Config {
-	return Config{Enabled: true, StateFile: "cpa-keyer-state.json"}
+	return Config{Enabled: true, StateFile: "cpa-keyer-state.db"}
 }
 
 func DecodeConfig(raw []byte) (Config, error) {
@@ -330,6 +330,8 @@ func ResolveStatePath(path string) (string, error) {
 	return abs, nil
 }
 
+// LoadState reads the legacy JSON state format for an explicit offline
+// migration into SQLite. The running Store never reads or writes JSON state.
 func LoadState(path string) (*State, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -346,87 +348,4 @@ func LoadState(path string) (*State, error) {
 		state.Usage = make(map[string]*UsageState)
 	}
 	return &state, nil
-}
-
-func SaveState(path string, keys []KeyConfig, usage map[string]*UsageState) error {
-	return SaveStateWithHistory(path, keys, usage, UsageHistoryState{})
-}
-
-func SaveStateWithHistory(path string, keys []KeyConfig, usage map[string]*UsageState, history UsageHistoryState) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	cleanKeys := make([]KeyConfig, len(keys))
-	for i := range keys {
-		cleanKeys[i] = keys[i]
-		cleanKeys[i].Models = append([]ModelRule(nil), keys[i].Models...)
-		cleanKeys[i].Aliases = nil
-	}
-	state := State{Version: 3, Keys: cleanKeys, Usage: usage, History: history, UpdatedAt: time.Now().UTC()}
-	raw, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	return atomicWriteStateFile(path, raw)
-}
-
-func SaveUsageOnly(path string, usage map[string]*UsageState) error {
-	return updateRuntimeState(path, usage, nil)
-}
-
-func SaveRuntimeState(path string, usage map[string]*UsageState, history UsageHistoryState) error {
-	return updateRuntimeState(path, usage, &history)
-}
-
-func updateRuntimeState(path string, usage map[string]*UsageState, history *UsageHistoryState) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	var state State
-	if current, err := LoadState(path); err == nil {
-		state = *current
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	state.Version = 3
-	state.Usage = usage
-	if history != nil {
-		state.History = *history
-	}
-	state.UpdatedAt = time.Now().UTC()
-	state.Aliases = nil
-	for i := range state.Keys {
-		state.Keys[i].Aliases = nil
-	}
-	raw, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	return atomicWriteStateFile(path, raw)
-}
-
-func atomicWriteStateFile(path string, raw []byte) error {
-	dir := filepath.Dir(path)
-	temp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tempName := temp.Name()
-	defer func() { _ = os.Remove(tempName) }()
-	if err := temp.Chmod(0o600); err != nil {
-		_ = temp.Close()
-		return err
-	}
-	if _, err := temp.Write(raw); err != nil {
-		_ = temp.Close()
-		return err
-	}
-	if err := temp.Sync(); err != nil {
-		_ = temp.Close()
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tempName, path)
 }

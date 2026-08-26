@@ -1,6 +1,6 @@
 {
   "header": {
-    "title": "cpa-keyer Management",
+    "title": "Keyer Management",
     "keyList": "Keys",
     "newKey": "New Key",
     "connected": "Connected",
@@ -54,7 +54,7 @@
     "updating": "Updating…",
     "edit": "Edit",
     "resetRpm": "Reset RPM",
-    "resetLimits": "Reset limits",
+    "resetLimits": "Reset",
     "rotate": "Rotate",
     "delete": "Delete",
     "rotateConfirm": "Rotate the key for {{id}}? The old key becomes invalid immediately.",
@@ -188,12 +188,9 @@
     "sectionNavigation": "Keyer sections",
     "eyebrow": "KEYER USAGE",
     "overviewTitle": "Overview",
-    "overviewHint": "Track requests, tokens, and cost trends across every Keyer key.",
-    "analysisTitle": "Analysis",
-    "analysisHint": "Break down requests, success rate, tokens, and cost by model, key ID, and provider.",
+    "overviewHint": "See Keyer request trends, token composition, cost, model efficiency, and usage distribution in one view.",
     "eventsTitle": "Request events",
     "eventsHint": "Inspect per-request billing and token details recognized by Keyer.",
-    "eventsPrivacy": "To protect downstream credentials, request events store and display key IDs only. Plain cpa_ keys are never retained.",
     "range": "Time range",
     "range24h": "Last 24 hours",
     "range7d": "Last 7 days",
@@ -201,8 +198,8 @@
     "range90d": "Last 90 days",
     "key": "Key ID",
     "allKeys": "All keys",
-    "provider": "Provider",
-    "allProviders": "All providers",
+    "provider": "Source",
+    "allProviders": "All sources",
     "model": "Model",
     "allModels": "All models",
     "result": "Result",
@@ -226,23 +223,32 @@
       "tokens": "Total tokens",
       "ioTokens": "Input {{input}} · output {{output}}",
       "cost": "Estimated cost",
-      "cacheRate": "Cache hit rate {{rate}}"
+      "cacheRate": "Cache hit rate {{rate}}",
+      "cache": "Cache rate",
+      "input": "Input",
+      "output": "Output",
+      "reasoning": "Reasoning",
+      "cacheRead": "Cache read",
+      "cacheCreation": "Cache write",
+      "summary": "Core usage metrics"
     },
     "chart": {
-      "requests": "Request trend",
-      "requestsHint": "All Keyer requests grouped over time",
-      "total_tokens": "Token trend",
-      "tokensHint": "Combined input and output tokens",
-      "cost_usd": "Cost trend",
-      "costHint": "Estimated from configured model pricing"
+      "activityTitle": "Requests and token trend",
+      "activityHint": "Compare request volume and token consumption on the same timeline.",
+      "tokenComposition": "Token composition trend",
+      "tokenCompositionHint": "Split input, output, reasoning, and cache-read tokens over time.",
+      "modelShare": "Model token share",
+      "modelShareHint": "Aggregate token consumption by model for the selected range.",
+      "providerShare": "Source request share",
+      "providerShareHint": "Group requests by the actual upstream source.",
+      "keyUsage": "Key usage ranking",
+      "keyUsageHint": "Rank active keys by token consumption."
     },
     "analysis": {
-      "requestShare": "Ranked by requests",
-      "tokensUnit": "tokens",
-      "rangeTotal": "Total for the selected range",
       "byModel": "Model usage",
-      "byKey": "Key distribution",
-      "byProvider": "Provider distribution"
+      "modelEfficiency": "Model efficiency",
+      "modelEfficiencyHint": "Compare requests, success rate, tokens, and cost per million tokens by model.",
+      "costPerMillion": "Cost per 1M tokens"
     },
     "events": {
       "time": "Time",
@@ -252,7 +258,17 @@
       "result": "Result",
       "tokens": "Tokens",
       "cost": "Cost",
-      "upstream": "Upstream"
+      "upstream": "Upstream",
+      "source": "Source",
+      "billing": "Billing",
+      "perCall": "Per call",
+      "byToken": "By token",
+      "cacheRate": "Cache rate",
+      "cacheCreationUnavailable": "The current CPA does not report cache writes separately"
+    },
+    "dashboard": {
+      "activity": "Usage analysis",
+      "activityHint": "Trends, composition, and distribution share the same live filter range."
     }
   },
   "keyUsage": {

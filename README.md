@@ -13,22 +13,38 @@ It issues plugin-owned `cpa_…` keys and enforces an exact model allow-list, RP
 ## v0.7.1 usage analytics and CPA-integrated UI
 
 The embedded UI now follows CPA's light, white, and dark management themes and
-uses a compact local section rail for Key management, Overview, Analysis, and
-Request events. Native browser alerts and the redundant plugin logout action
+uses a compact local section rail for Overview, Request events, Key management,
+and Key creation. Native browser alerts and the redundant plugin logout action
 are removed. The Key list also supports resetting one or multiple keys' daily
 and weekly limits to zero.
 
-Overview charts request, token, and estimated-cost trends. Analysis breaks the
-same data down by model, Key ID, and provider. Request events expose only the
-Keyer Key ID—never the plaintext `cpa_…` credential—and include the timestamp,
+Overview combines request/token trends with model, Key ID, and provider
+breakdowns. Request events keep the Key ID and a masked source such as
+`cpa_*****wxyz`, never the plaintext credential, together with the timestamp,
 provider, requested/upstream model, result, billing mode, token detail, and
-estimated cost available from CPA's `usage.handle` payload. History is bounded
-to 90 days or 20,000 events, whichever is reached first.
+estimated cost available from CPA's `usage.handle` payload. History is retained
+for 90 days without a fixed event-count cap.
 
-The state format is version `3`. Existing version 1/2 files load normally with
-an empty request history and are written as version 3 on the next persistence.
-Historical request events cannot be reconstructed from old aggregate-only
-state; collection starts with the first request handled by v0.7.0.
+`state_file` is now one SQLite database containing Key configuration, model
+rules, daily/weekly aggregate state, and request events. JSON state files are
+no longer used by the runtime persistence path or rewritten by the 15-second usage flusher.
+An existing JSON state must be backed up and explicitly imported into the new
+`.db` file before the plugin configuration is switched; keep the JSON source
+until Key, aggregate, and event counts have been verified.
+
+Use the offline migration command while CPA is stopped or no longer writing
+the source JSON:
+
+```bash
+go run ./cmd/cpa-keyer-state-migrate \
+  -source /CLIProxyAPI/data/cpa-key-policy-state.json \
+  -destination /CLIProxyAPI/data/cpa-key-policy-state.db
+```
+
+The command imports keys, normalized model rules, daily/weekly aggregate state,
+and retained request events in one transaction. It verifies the complete state
+and event payloads, runs a SQLite checkpoint, leaves the JSON unchanged, and
+refuses to overwrite an existing destination.
 
 ## v0.6.0 rename and management UI
 
@@ -39,16 +55,16 @@ CPA displays the plugin and its resource menu as `Keyer`. The redesigned UI bund
 model prices in one action from `https://models.dev/api.json`, and preserves the
 complete create/edit form draft while the standalone model picker is open.
 
-The rename does not change the state schema or existing `cpa_…` keys. Before
-removing the old plugin, record the exact value of
-`plugins.configs.cpa-key-policy.state_file`. Install `cpa-keyer`, then set
-`plugins.configs.cpa-keyer.state_file` to that same existing file before the
-first verification. Fresh installs use the new `cpa-keyer-state.json` default.
+The rename does not change existing `cpa_…` keys. Before removing the old
+plugin, record and back up the exact JSON path in
+`plugins.configs.cpa-key-policy.state_file`. Import it into a new SQLite file,
+then set `plugins.configs.cpa-keyer.state_file` to that `.db` path. Fresh
+installs use the `cpa-keyer-state.db` default.
 
 ## v0.5.3 legacy-key compatibility
 
-Existing plugin-issued keys and the state file remain valid; upgrading does not
-require creating or rotating a key. Frontend authentication now validates key
+Existing plugin-issued keys remain valid after the JSON state is imported into
+SQLite; upgrading does not require creating or rotating a key. Frontend authentication now validates key
 identity separately from execution policy. An enabled key that exceeds RPM or a
 daily/weekly budget is authenticated first, then receives a structured `429`
 with `rpm_exceeded`, `daily_exceeded`, or `weekly_exceeded` instead of CPA
@@ -122,7 +138,7 @@ plugins:
     cpa-keyer:
       enabled: true
       priority: 10
-      state_file: "cpa-keyer-state.json"
+      state_file: "cpa-keyer-state.db"
 ```
 
 CPA plugin store source:
@@ -133,17 +149,16 @@ https://raw.githubusercontent.com/JaxsonWang/cpa-plugin-keyer/main/registry.json
 
 Add this URL to `plugins.store-sources`, then select the `JaxsonWang` entry for
 `cpa-keyer`. If the official `origin652` build is already installed,
-record `plugins.configs.cpa-key-policy.state_file` before uninstalling that
-plugin entry, because uninstalling removes the saved plugin config. The state
-file itself is separate from the plugin library and remains on disk. After
-installing the `JaxsonWang` build, restore the same `state_file` path before
-opening the cpa-keyer UI, then verify the existing keys and usage data.
+record and back up `plugins.configs.cpa-key-policy.state_file` before
+uninstalling that plugin entry, because uninstalling removes the saved plugin
+config. Import the old JSON state into the new SQLite database before pointing
+`cpa-keyer` at the `.db` path, then verify the existing keys and usage data.
 
 Canonical key policy shape:
 
 ```yaml
 enabled: true
-state_file: ./cpa-keyer-state.json
+state_file: ./cpa-keyer-state.db
 
 keys:
   - id: team-a
@@ -165,11 +180,13 @@ keys:
 
 Use the Web UI or Management API to generate keys when possible. The plaintext key is returned once. Do not also add plugin-issued keys to CPA's native `api-keys`, because that creates a separate native authentication path.
 
-If the state file already exists, its keys and usage are loaded as the runtime source of truth. See [`config.example.yaml`](./config.example.yaml) for the seed format.
+Once the SQLite state file exists, its keys and usage are loaded as the runtime source of truth. The YAML keys in [`config.example.yaml`](./config.example.yaml) seed only a new empty database.
 
-## Upgrade from v0.4.x
+## Legacy v0.4.x model rules
 
-The v0.5.0 state format is version `2`. Existing state/config is migrated on load:
+When a legacy JSON state is explicitly imported into SQLite, its model rules
+are normalized as follows; pointing `state_file` at the JSON file does not run
+this migration automatically:
 
 - a legacy direct rule with `target_model` becomes `{model: target_model}`;
 - a legacy global alias contributes each target's real model as a direct rule;
@@ -179,10 +196,10 @@ The v0.5.0 state format is version `2`. Existing state/config is migrated on loa
 - pricing is preserved;
 - historical `usage.by_alias` rows remain as residual history because an old alias cannot be truthfully assigned to one target model.
 
-After upgrading:
+After importing:
 
 - clients must send real CPA model names; old alias request names no longer resolve;
-- back up the state file before the first v0.5.0 load if rollback is required;
+- keep the original JSON backup until key, usage, and event totals have been verified;
 - start a new Codex session or restart the client, because an existing session may have cached the SSE fallback decision.
 
 ## Web Management UI

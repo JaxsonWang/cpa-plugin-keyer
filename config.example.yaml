@@ -1,6 +1,6 @@
 # cpa-keyer plugin config. Replace placeholders and do not commit secrets.
 enabled: true
-state_file: ./cpa-keyer-state.json
+state_file: ./cpa-keyer-state.db
 
 keys:
   - id: team-a

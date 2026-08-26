@@ -90,6 +90,8 @@ describe("KeyList", () => {
     expect(container.textContent).toContain("Key team-b");
     expect(container.querySelector(".page-heading-title h1")?.textContent).toBe("Key 列表");
     expect(container.querySelector(".page-heading-title .runtime-status")?.textContent).toBe("运行正常");
+    expect(container.querySelector(".overview-card.spend strong")?.textContent).toBe("$2.0");
+    expect(container.querySelector(".key-usage-cell")?.textContent).toContain("$1.0 / $10.0");
 
     const toggle = container.querySelector<HTMLInputElement>(
       'input[aria-label="切换 Key team-a 状态"]',
@@ -175,13 +177,13 @@ describe("KeyList", () => {
     await renderList([key("team-a")]);
 
     const resetLimits = Array.from(container.querySelectorAll<HTMLButtonElement>(".key-table-actions button"))
-      .find((button) => button.textContent === "重置上限")!;
+      .find((button) => button.textContent === "重置")!;
     await act(async () => resetLimits.click());
 
     const dialog = container.querySelector<HTMLElement>('[role="alertdialog"]')!;
     expect(dialog.textContent).toContain("每日用量上限和每周用量上限清零为 0");
     const confirmButton = Array.from(dialog.querySelectorAll("button"))
-      .find((button) => button.textContent === "重置上限")!;
+      .find((button) => button.textContent === "重置")!;
     await act(async () => {
       confirmButton.click();
       await tick();

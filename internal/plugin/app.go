@@ -84,7 +84,7 @@ func (a *App) configure(raw []byte) error {
 }
 
 func (a *App) Shutdown() {
-	a.store.StopUsageFlusher()
+	_ = a.store.Close()
 }
 
 func (a *App) registration() Registration {
@@ -97,7 +97,7 @@ func (a *App) registration() Registration {
 			GitHubRepository: "https://github.com/JaxsonWang/cpa-plugin-keyer",
 			ConfigFields: []ConfigField{
 				{Name: "enabled", Type: "boolean", Description: "Enable or disable this plugin without unloading it."},
-				{Name: "state_file", Type: "string", Description: "JSON state file used for key policy changes made through the Management API."},
+				{Name: "state_file", Type: "string", Description: "SQLite database used for Keyer configuration, usage state, and request events."},
 				{Name: "keys", Type: "array", Description: "Initial downstream key policy list. State file wins after it exists."},
 			},
 		},
@@ -247,6 +247,9 @@ func (a *App) handleUsage(raw []byte) ([]byte, error) {
 		CacheCreationTokens: req.Detail.CacheCreationTokens,
 		TotalTokens:         req.Detail.TotalTokens,
 	})
+	if err := a.store.UsageStoreError(); err != nil {
+		return nil, err
+	}
 	return OKEnvelope(UsageHandleResponse{})
 }
 
@@ -304,13 +307,25 @@ func (a *App) handleManagement(raw []byte) ([]byte, error) {
 	case req.Method == http.MethodGet && path == base+"/keys/usage":
 		return OKEnvelope(a.keyUsage(idFromRequest(req.Query, req.Body)))
 	case req.Method == http.MethodGet && path == base+"/usage/overview":
-		return OKEnvelope(jsonResponse(http.StatusOK, a.store.UsageOverview(usageFilterFromQuery(req.Query))))
+		overview, err := a.store.UsageOverview(usageFilterFromQuery(req.Query))
+		if err != nil {
+			return OKEnvelope(jsonError(http.StatusInternalServerError, "usage_store_error", err.Error()))
+		}
+		return OKEnvelope(jsonResponse(http.StatusOK, overview))
 	case req.Method == http.MethodGet && path == base+"/usage/analysis":
-		return OKEnvelope(jsonResponse(http.StatusOK, a.store.UsageAnalysis(usageFilterFromQuery(req.Query))))
+		analysis, err := a.store.UsageAnalysis(usageFilterFromQuery(req.Query))
+		if err != nil {
+			return OKEnvelope(jsonError(http.StatusInternalServerError, "usage_store_error", err.Error()))
+		}
+		return OKEnvelope(jsonResponse(http.StatusOK, analysis))
 	case req.Method == http.MethodGet && path == base+"/usage/events":
 		page := positiveQueryInt(req.Query, "page", 1)
 		pageSize := positiveQueryInt(req.Query, "page_size", 50)
-		return OKEnvelope(jsonResponse(http.StatusOK, a.store.UsageEvents(usageFilterFromQuery(req.Query), page, pageSize)))
+		events, err := a.store.UsageEvents(usageFilterFromQuery(req.Query), page, pageSize)
+		if err != nil {
+			return OKEnvelope(jsonError(http.StatusInternalServerError, "usage_store_error", err.Error()))
+		}
+		return OKEnvelope(jsonResponse(http.StatusOK, events))
 	case req.Method == http.MethodGet && path == base+"/status":
 		return OKEnvelope(jsonResponse(http.StatusOK, a.store.Status()))
 	default:

@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate, Link, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
+import { Key, ListBullets, Plus, SquaresFour } from "@phosphor-icons/react";
 import { isAuthed, subscribe, getSession, bootstrapFromPanel } from "./store/session";
 import { isEmbedded } from "./store/panelAuth";
 import { useT } from "./i18n";
@@ -10,7 +11,6 @@ import KeyEdit from "./pages/KeyEdit";
 import KeyUsage from "./pages/KeyUsage";
 import ModelPick from "./pages/ModelPick";
 import UsageOverview from "./pages/UsageOverview";
-import UsageAnalysis from "./pages/UsageAnalysis";
 import RequestEvents from "./pages/RequestEvents";
 
 function useAuthTick() {
@@ -29,22 +29,14 @@ function BrandMark() {
   );
 }
 
-type NavName = "keys" | "new" | "overview" | "analysis" | "events";
+type NavName = "keys" | "new" | "overview" | "events";
 
 function NavIcon({ name }: { name: NavName }) {
-  if (name === "new") {
-    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>;
-  }
-  if (name === "overview") {
-    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4v9Zm0 7h6v-3H4v3Zm10 0h6v-9h-6v9Zm0-13h6V4h-6v3Z" /></svg>;
-  }
-  if (name === "analysis") {
-    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V9M12 19V5M19 19v-7M3 19h18" /></svg>;
-  }
-  if (name === "events") {
-    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" /></svg>;
-  }
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11a4 4 0 1 1 3.7 4H4v-4h4ZM14 11h6M18 9v4" /></svg>;
+  const props = { "aria-hidden": true, size: 18, weight: "regular" as const };
+  if (name === "new") return <Plus {...props} />;
+  if (name === "overview") return <SquaresFour {...props} />;
+  if (name === "events") return <ListBullets {...props} />;
+  return <Key {...props} />;
 }
 
 // Desktop uses a compact operator-console sidebar. Mobile keeps the existing
@@ -63,7 +55,7 @@ function TopNav() {
         <div className="topnav-brand">
           <BrandMark />
           <span className="tn-brand-copy">
-            <span className="tn-title">cpa-keyer</span>
+            <span className="tn-title">Keyer</span>
             <span className="tn-kicker">KEY ACCESS CONTROL</span>
           </span>
         </div>
@@ -72,13 +64,12 @@ function TopNav() {
           <span><strong>{t("header.connected")}</strong><small>{s.baseUrl}</small></span>
         </div>
         <div className="topnav-actions">
-          <Link to="/keys" className={"tn-link" + (onKeys && !onNew ? " active" : "")}><NavIcon name="keys" />{t("header.keyList")}</Link>
           <Link to="/overview" className={"tn-link" + (loc.pathname === "/overview" ? " active" : "")}><NavIcon name="overview" />{t("usage.overviewTitle")}</Link>
-          <Link to="/analysis" className={"tn-link" + (loc.pathname === "/analysis" ? " active" : "")}><NavIcon name="analysis" />{t("usage.analysisTitle")}</Link>
           <Link to="/events" className={"tn-link" + (loc.pathname === "/events" ? " active" : "")}><NavIcon name="events" />{t("usage.eventsTitle")}</Link>
+          <Link to="/keys" className={"tn-link" + (onKeys && !onNew ? " active" : "")}><NavIcon name="keys" />{t("header.keyList")}</Link>
           <Link to="/keys/new" className={"tn-link" + (onNew ? " active" : "")}><NavIcon name="new" />{t("header.newKey")}</Link>
         </div>
-        <div className="tn-version">CPA PLUGIN · v0.7.1</div>
+        <div className="tn-version">KEYER · v0.7.1</div>
       </div>
     </aside>
   );
@@ -98,10 +89,8 @@ function WorkspaceHeader() {
           ? t("header.newKey")
           : path === "/overview"
             ? t("usage.overviewTitle")
-            : path === "/analysis"
-              ? t("usage.analysisTitle")
-              : path === "/events"
-                ? t("usage.eventsTitle")
+            : path === "/events"
+              ? t("usage.eventsTitle")
           : t("header.keyList");
   return (
     <header className="workspace-header mobile-hidden">
@@ -116,13 +105,12 @@ function WorkspaceHeader() {
 function SectionNav() {
   const t = useT();
   const location = useLocation();
-  const topLevel = ["/keys", "/overview", "/analysis", "/events"].includes(location.pathname);
+  const topLevel = ["/keys", "/overview", "/events"].includes(location.pathname);
   if (!topLevel) return null;
   const items: { to: string; label: string; icon: NavName }[] = [
-    { to: "/keys", label: t("header.keyList"), icon: "keys" },
     { to: "/overview", label: t("usage.overviewTitle"), icon: "overview" },
-    { to: "/analysis", label: t("usage.analysisTitle"), icon: "analysis" },
     { to: "/events", label: t("usage.eventsTitle"), icon: "events" },
+    { to: "/keys", label: t("header.keyList"), icon: "keys" },
   ];
   return (
     <nav className="section-nav" aria-label={t("usage.sectionNavigation")}>
@@ -183,7 +171,7 @@ function Shell() {
             <Route path="/keys/:id/edit/models" element={<ModelPick />} />
             <Route path="/keys/:id/usage" element={<KeyUsage />} />
             <Route path="/overview" element={<UsageOverview />} />
-            <Route path="/analysis" element={<UsageAnalysis />} />
+            <Route path="/analysis" element={<Navigate to="/overview" replace />} />
             <Route path="/events" element={<RequestEvents />} />
             <Route path="*" element={<Navigate to="/keys" replace />} />
           </Routes>

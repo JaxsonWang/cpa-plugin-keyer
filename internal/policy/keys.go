@@ -54,6 +54,23 @@ func PreviewKey(key string) string {
 	return fmt.Sprintf("%s...%s", key[:7], key[len(key)-5:])
 }
 
+// MaskKeyPreview turns the already-redacted persisted preview into the compact
+// source label used by request events. Only the final four characters remain;
+// the plaintext credential is neither required nor reconstructed.
+func MaskKeyPreview(preview string) string {
+	preview = strings.TrimSpace(preview)
+	if preview == "" {
+		return ""
+	}
+	if split := strings.LastIndex(preview, "..."); split >= 0 {
+		preview = preview[split+3:]
+	}
+	if len(preview) > 4 {
+		preview = preview[len(preview)-4:]
+	}
+	return "cpa_*****" + preview
+}
+
 func ExtractAPIKey(headers http.Header, query map[string][]string) string {
 	for _, name := range []string{"Authorization", "X-API-Key", "api-key", "x-api-key", "x-goog-api-key"} {
 		value := strings.TrimSpace(headerValue(headers, name))

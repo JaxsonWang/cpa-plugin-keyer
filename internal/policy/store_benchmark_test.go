@@ -22,7 +22,7 @@ func benchmarkStoreWithKeys(b *testing.B, count int) (*Store, string) {
 		target = plain
 	}
 	store := NewStore()
-	if err := store.Configure(Config{Enabled: true, StateFile: filepath.Join(b.TempDir(), "state.json"), Keys: keys}); err != nil {
+	if err := store.Configure(Config{Enabled: true, StateFile: filepath.Join(b.TempDir(), "state.db"), Keys: keys}); err != nil {
 		b.Fatal(err)
 	}
 	return store, target

@@ -138,7 +138,10 @@ export function initLangSync(): void {
     return;
   }
 
-  observer = new MutationObserver(() => sync());
+  // The parent's <html> belongs to the parent window's DOM realm. Chromium
+  // rejects it when observed with a MutationObserver created by the iframe.
+  const Observer = parentEl.ownerDocument.defaultView?.MutationObserver ?? MutationObserver;
+  observer = new Observer(() => sync());
   observer.observe(parentEl, { attributes: true, attributeFilter: ["lang"] });
 
   storageHandler = (e: StorageEvent) => {

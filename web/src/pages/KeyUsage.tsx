@@ -11,7 +11,7 @@ import { MobileTabBar } from "./KeyList";
 type Window = "daily" | "weekly";
 
 function fmtUsd(n: number): string {
-  return "$" + (Number.isFinite(n) ? n.toFixed(2) : "0.00");
+  return "$" + (Number.isFinite(n) ? n.toFixed(1) : "0.0");
 }
 
 // Compact integer formatting with thousands separators. 0 shows as "0".

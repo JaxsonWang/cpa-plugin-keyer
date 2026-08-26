@@ -92,7 +92,11 @@ export function initThemeSync(): void {
   } catch {
     return;
   }
-  observer = new MutationObserver(() => sync());
+  // A same-origin iframe and its parent still belong to different DOM realms.
+  // Chromium rejects a parent Node passed to the iframe's MutationObserver,
+  // so construct the observer from the observed element's owning window.
+  const Observer = parentEl.ownerDocument.defaultView?.MutationObserver ?? MutationObserver;
+  observer = new Observer(() => sync());
   observer.observe(parentEl, { attributes: true, attributeFilter: [THEME_ATTR] });
 
   // Also listen for same-origin localStorage changes as a backstop — covers any

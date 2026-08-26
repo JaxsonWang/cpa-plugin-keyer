@@ -2,7 +2,6 @@ package policy
 
 import (
 	"net/http"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -18,7 +17,7 @@ func newTestStore(t *testing.T) (*Store, string) {
 	store := NewStore()
 	err = store.Configure(Config{
 		Enabled:   true,
-		StateFile: filepath.Join(t.TempDir(), "state.json"),
+		StateFile: filepath.Join(t.TempDir(), "state.db"),
 		Keys: []KeyConfig{
 			{
 				ID:         "team-a",
@@ -36,6 +35,7 @@ func newTestStore(t *testing.T) (*Store, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = store.Close() })
 	return store, plain
 }
 
@@ -66,12 +66,16 @@ func TestAuthenticateKeyOnlyValidatesCredentialIdentity(t *testing.T) {
 }
 
 func TestConfigureNormalizesAndPersistsLegacyPricePrecision(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "state.json")
+	path := filepath.Join(t.TempDir(), "state.db")
 	hash, err := HashKey("cpa_price_precision")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SaveState(path, []KeyConfig{{
+	database, err := openStateDatabase(path, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.saveState([]KeyConfig{{
 		ID:      "price-key",
 		Name:    "Price Key",
 		Enabled: true,
@@ -85,6 +89,9 @@ func TestConfigureNormalizesAndPersistsLegacyPricePrecision(t *testing.T) {
 	}}, nil); err != nil {
 		t.Fatal(err)
 	}
+	if err := database.close(); err != nil {
+		t.Fatal(err)
+	}
 
 	store := NewStore()
 	if err := store.Configure(Config{Enabled: true, StateFile: path}); err != nil {
@@ -95,11 +102,16 @@ func TestConfigureNormalizesAndPersistsLegacyPricePrecision(t *testing.T) {
 		t.Fatalf("normalized prices = %+v, want 0.2/1.2/0.2", rule)
 	}
 
-	persisted, err := LoadState(path)
+	persistedDatabase, err := openStateDatabase(path, time.Now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	persistedRule := persisted.Keys[0].Models[0]
+	defer persistedDatabase.close()
+	persistedKeys, _, initialized, err := persistedDatabase.loadState()
+	if err != nil || !initialized {
+		t.Fatalf("load persisted state: initialized=%v err=%v", initialized, err)
+	}
+	persistedRule := persistedKeys[0].Models[0]
 	if persistedRule.InputPricePerMillion != 0.2 || persistedRule.CacheReadPricePerMillion != 0.2 {
 		t.Fatalf("persisted prices = %+v, want normalized decimals", persistedRule)
 	}
@@ -152,7 +164,7 @@ func perCallImageStore(t *testing.T) (*Store, string) {
 	store := NewStore()
 	err = store.Configure(Config{
 		Enabled:   true,
-		StateFile: filepath.Join(t.TempDir(), "state.json"),
+		StateFile: filepath.Join(t.TempDir(), "state.db"),
 		Keys: []KeyConfig{
 			{
 				ID:      "img-team",
@@ -270,7 +282,7 @@ func TestIsImageVideoEndpoint(t *testing.T) {
 // that was removed from state would keep a revoked credential usable.
 func TestConfigureDoesNotResurrectKeysMissingFromState(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "state.json")
+	path := filepath.Join(dir, "state.db")
 	onDiskHash, err := HashKey("cpa_on_disk")
 	if err != nil {
 		t.Fatal(err)
@@ -290,8 +302,8 @@ func TestConfigureDoesNotResurrectKeysMissingFromState(t *testing.T) {
 	if err := s1.UpsertKey(KeyConfig{ID: "in-mem", Enabled: true, KeyHash: revokedHash, Models: []ModelRule{{Model: "fast"}}}, true); err != nil {
 		t.Fatal(err)
 	}
-	// Simulate a stale disk snapshot: write a state containing only "on-disk".
-	if err := SaveState(path, []KeyConfig{{ID: "on-disk", Enabled: true, KeyHash: onDiskHash, Models: []ModelRule{{Model: "fast"}}}}, nil); err != nil {
+	// Simulate a stale database snapshot containing only "on-disk".
+	if err := s1.runtimeHistory().saveState([]KeyConfig{{ID: "on-disk", Enabled: true, KeyHash: onDiskHash, Models: []ModelRule{{Model: "fast"}}}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	// Reconfigure with the same path. The persisted state lacks "in-mem", so it
@@ -319,7 +331,7 @@ func TestConfigureDoesNotResurrectKeysMissingFromState(t *testing.T) {
 func TestConfigureFlushesBeforeReload(t *testing.T) {
 	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
 	dir := t.TempDir()
-	path := filepath.Join(dir, "state.json")
+	path := filepath.Join(dir, "state.db")
 	hash, err := HashKey("cpa_flush")
 	if err != nil {
 		t.Fatal(err)
@@ -333,8 +345,8 @@ func TestConfigureFlushesBeforeReload(t *testing.T) {
 	}
 	s.StartUsageFlusher()
 	// Record usage but do NOT flush manually. Without the Bug 2 fix, this
-	// in-memory usage has never been written to disk, so a reconfigure that
-	// LoadState's the (empty-usage) disk would lose it.
+	// in-memory usage has never been written to disk, so loading the stale
+	// database snapshot during reconfigure would lose it.
 	_ = s.RecordUsage("k", "fast", "m", false, UsageDetail{InputTokens: 1_000_000, OutputTokens: 500_000})
 	// Reconfigure with the same path. Bug 2 fix: Configure flushes first.
 	if err := s.Configure(Config{Enabled: true, StateFile: path, Keys: []KeyConfig{
@@ -348,6 +360,22 @@ func TestConfigureFlushesBeforeReload(t *testing.T) {
 	}
 }
 
+func TestConfigureStopsWhenPreviousSQLiteFlushFails(t *testing.T) {
+	store, _ := newTestStore(t)
+	store.usage.RecordCost("team-a", "fast", 1, 0, 0, 0, 0, 1)
+	if err := store.runtimeHistory().close(); err != nil {
+		t.Fatal(err)
+	}
+
+	err := store.Configure(Config{
+		Enabled:   true,
+		StateFile: filepath.Join(t.TempDir(), "replacement.db"),
+	})
+	if err == nil {
+		t.Fatal("Configure continued after the previous SQLite flush failed")
+	}
+}
+
 // TestFlushUsagePreservesDiskKeys (Bug 3): the periodic usage flush must not
 // overwrite the on-disk key list. We seed a key on disk, then call FlushUsage
 // on a store whose in-memory key set differs (missing the key). The disk key
@@ -355,7 +383,7 @@ func TestConfigureFlushesBeforeReload(t *testing.T) {
 func TestFlushUsagePreservesDiskKeys(t *testing.T) {
 	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
 	dir := t.TempDir()
-	path := filepath.Join(dir, "state.json")
+	path := filepath.Join(dir, "state.db")
 	hash, err := HashKey("cpa_p3")
 	if err != nil {
 		t.Fatal(err)
@@ -394,24 +422,6 @@ func TestFlushUsagePreservesDiskKeys(t *testing.T) {
 	}
 }
 
-func TestSaveUsageOnlyDoesNotOverwriteCorruptState(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "state.json")
-	original := []byte(`{"keys":`)
-	if err := os.WriteFile(path, original, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := SaveUsageOnly(path, map[string]*UsageState{}); err == nil {
-		t.Fatal("SaveUsageOnly accepted a corrupt state file")
-	}
-	current, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(current) != string(original) {
-		t.Fatalf("corrupt state was overwritten: %q", current)
-	}
-}
-
 // TestKeysSnapshotSortedByID (Bug 5): Keys() returns a deterministic order
 // sorted by ID, not random map-iteration order.
 func TestKeysSnapshotSortedByID(t *testing.T) {
@@ -420,7 +430,7 @@ func TestKeysSnapshotSortedByID(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := NewStore()
-	if err := s.Configure(Config{Enabled: true, StateFile: filepath.Join(t.TempDir(), "state.json"), Keys: []KeyConfig{
+	if err := s.Configure(Config{Enabled: true, StateFile: filepath.Join(t.TempDir(), "state.db"), Keys: []KeyConfig{
 		{ID: "zeta", Enabled: true, KeyHash: hash, Models: []ModelRule{{Model: "a"}}},
 		{ID: "alpha", Enabled: true, KeyHash: hash, Models: []ModelRule{{Model: "a"}}},
 		{ID: "mid", Enabled: true, KeyHash: hash, Models: []ModelRule{{Model: "a"}}},
@@ -476,7 +486,7 @@ func TestStopUsageFlusherWaitsForWorkerExit(t *testing.T) {
 
 func TestStopUsageFlusherFlushesWithoutWorker(t *testing.T) {
 	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
-	path := filepath.Join(t.TempDir(), "state.json")
+	path := filepath.Join(t.TempDir(), "state.db")
 	hash, err := HashKey("cpa_shutdown_flush")
 	if err != nil {
 		t.Fatal(err)
@@ -494,11 +504,14 @@ func TestStopUsageFlusherFlushesWithoutWorker(t *testing.T) {
 	// serving. Shutdown must still persist usage recorded after that point.
 	store.StopUsageFlusher()
 
-	state, err := LoadState(path)
+	_, persistedUsage, initialized, err := store.runtimeHistory().loadState()
 	if err != nil {
 		t.Fatal(err)
 	}
-	usage := state.Usage["shutdown-key"]
+	if !initialized {
+		t.Fatal("state database was not initialized")
+	}
+	usage := persistedUsage["shutdown-key"]
 	if usage == nil || usage.Daily.TotalUSD != 1 || usage.Daily.CallCount != 1 {
 		t.Fatalf("persisted usage = %#v, want one $1 call", usage)
 	}
@@ -508,10 +521,7 @@ func TestResetAllUsageKeepsLiveCountersWhenPersistenceFails(t *testing.T) {
 	store, _ := newTestStore(t)
 	store.usage.RecordCost("team-a", "fast", 3, 0, 0, 0, 0, 1)
 
-	store.mu.Lock()
-	store.statePath = filepath.Join(t.TempDir(), "missing", "state.json")
-	store.mu.Unlock()
-	if err := os.WriteFile(filepath.Dir(store.StatePath()), []byte("not a directory"), 0o600); err != nil {
+	if err := store.runtimeHistory().close(); err != nil {
 		t.Fatal(err)
 	}
 

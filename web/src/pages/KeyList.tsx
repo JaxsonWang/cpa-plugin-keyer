@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { ChartLineUp, Key, Plus } from "@phosphor-icons/react";
 import {
   deleteKey,
   listKeys,
@@ -13,6 +15,7 @@ import type { KeyPublic } from "../types";
 import PlainKeyModal from "../components/PlainKeyModal";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { useT } from "../i18n";
+import { formatUSD } from "../utils/usageFormat";
 
 function errorMessage(error: unknown, fallback: string): string {
   const typed = error as {
@@ -248,7 +251,7 @@ export default function KeyList() {
   return (
     <div className="key-list-page">
       <div className="mobile-only mobile-list-head">
-        <div><span>cpa-keyer</span><strong>{t("header.keyList")}</strong></div>
+        <div><span>Keyer</span><strong>{t("header.keyList")}</strong></div>
         <span className="mobile-runtime"><i />{t("header.runtimeReady")}</span>
       </div>
       <div className="fp-head mobile-hidden">
@@ -279,7 +282,7 @@ export default function KeyList() {
           <div className="overview-card primary"><span>{t("keys.statTotal")}</span><strong>{keys.length}</strong><small>{t("keys.statTotalHint")}</small></div>
           <div className="overview-card"><span>{t("keys.statEnabled")}</span><strong>{enabledCount}</strong><small>{t("keys.statEnabledHint", { total: keys.length })}</small></div>
           <div className="overview-card"><span>{t("keys.statModels")}</span><strong>{modelCount}</strong><small>{t("keys.statModelsHint")}</small></div>
-          <div className="overview-card spend"><span>{t("keys.statSpend")}</span><strong>${dailySpend.toFixed(4)}</strong><small>{t("keys.statSpendHint")}</small></div>
+          <div className="overview-card spend"><span>{t("keys.statSpend")}</span><strong>{formatUSD(dailySpend)}</strong><small>{t("keys.statSpendHint")}</small></div>
         </div>
       )}
 
@@ -564,7 +567,7 @@ function UsageCell({ item }: { item: KeyPublic }) {
   const dailyLimit = item.usage.daily_limit_usd;
   const weeklyLimit = item.usage.weekly_limit_usd;
   const value = (used: number, limit: number) => (
-    `$${used.toFixed(2)} / ${limit > 0 ? `$${limit.toFixed(2)}` : t("usage.unlimited")}`
+    `${formatUSD(used)} / ${limit > 0 ? formatUSD(limit) : t("usage.unlimited")}`
   );
   return (
     <div className="key-usage-cell">
@@ -698,14 +701,14 @@ function KeyCard({
         <>
           <div className="kc-bar"><span style={{ width: `${pct}%` }} /></div>
           <div className="kc-meta">
-            <span>${item.usage.daily_usd.toFixed(2)} / ${limit.toFixed(2)}</span>
+            <span>{formatUSD(item.usage.daily_usd)} / {formatUSD(limit)}</span>
             <span>{modelNames.length} {t("keys.mobile.modelsSuffix")}</span>
           </div>
         </>
       )}
       {limit === 0 && (
         <div className="kc-meta">
-          <span>${item.usage.daily_usd.toFixed(2)} · {t("keys.mobile.noLimit")}</span>
+          <span>{formatUSD(item.usage.daily_usd)} · {t("keys.mobile.noLimit")}</span>
           <span>{modelNames.length} {t("keys.mobile.modelsSuffix")}</span>
         </div>
       )}
@@ -742,20 +745,20 @@ export function MobileTabBar({
 }) {
   const t = useT();
   const nav = useNavigate();
-  const tab = (id: "keys" | "usage" | "new", label: string, icon: string, target: string) => (
+  const tab = (id: "keys" | "usage" | "new", label: string, icon: ReactNode, target: string) => (
     <button
       className={`tab${active === id ? " active" : ""}`}
       onClick={() => nav(target)}
     >
-      <span className="tab-icon">{icon}</span>
+      <span className="tab-icon" aria-hidden="true">{icon}</span>
       <span>{label}</span>
     </button>
   );
   return (
     <nav className={`tabbar${showUsage ? "" : " tabbar--no-usage"}`}>
-      {tab("keys", t("keys.mobile.tabKeys"), "#", "/keys")}
-      {showUsage && tab("usage", t("keys.mobile.tabUsage"), "#", usagePath)}
-      {tab("new", t("keys.mobile.tabNew"), "+", "/keys/new")}
+      {tab("keys", t("keys.mobile.tabKeys"), <Key size={20} weight="regular" />, "/keys")}
+      {showUsage && tab("usage", t("keys.mobile.tabUsage"), <ChartLineUp size={20} weight="regular" />, usagePath)}
+      {tab("new", t("keys.mobile.tabNew"), <Plus size={20} weight="regular" />, "/keys/new")}
     </nav>
   );
 }
