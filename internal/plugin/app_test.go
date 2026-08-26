@@ -520,14 +520,23 @@ func TestRegistrationUsesCpaKeyerIdentity(t *testing.T) {
 	app := NewApp()
 	t.Cleanup(app.Shutdown)
 	registration := app.registration()
-	if PluginID != "cpa-keyer" || registration.Metadata.Name != "cpa-keyer" {
-		t.Fatalf("plugin identity = %q / %q, want cpa-keyer", PluginID, registration.Metadata.Name)
+	if PluginID != "cpa-keyer" || registration.Metadata.Name != "Keyer" {
+		t.Fatalf("plugin identity = %q / %q, want cpa-keyer / Keyer", PluginID, registration.Metadata.Name)
 	}
-	if registration.Metadata.Version != "0.6.0" {
-		t.Fatalf("plugin version = %q, want 0.6.0", registration.Metadata.Version)
+	if registration.Metadata.Version != "0.6.1" {
+		t.Fatalf("plugin version = %q, want 0.6.1", registration.Metadata.Version)
 	}
 	if registration.Metadata.GitHubRepository != "https://github.com/JaxsonWang/cpa-plugin-keyer" {
 		t.Fatalf("repository = %q", registration.Metadata.GitHubRepository)
+	}
+}
+
+func TestManagementResourceUsesKeyerDisplayName(t *testing.T) {
+	app := NewApp()
+	t.Cleanup(app.Shutdown)
+	resources := app.managementRegistration().Resources
+	if len(resources) != 1 || resources[0].Menu != "Keyer" {
+		t.Fatalf("management resources = %+v, want Keyer menu", resources)
 	}
 }
 

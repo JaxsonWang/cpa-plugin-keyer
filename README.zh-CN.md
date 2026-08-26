@@ -14,7 +14,7 @@
 
 插件 ID 已从 `cpa-key-policy` 改为 `cpa-keyer`，仓库改为
 [`JaxsonWang/cpa-plugin-keyer`](https://github.com/JaxsonWang/cpa-plugin-keyer)，共享库、
-压缩包、管理 API 和资源路径均使用新名称。新界面内置全部样式与 SVG，不依赖 CDN；
+压缩包、管理 API 和资源路径均使用新名称；CPA 后台展示名统一为 `Keyer`。新界面内置全部样式与 SVG，不依赖 CDN；
 模型价格可通过“同步价格”从 `https://models.dev/api.json` 按精确模型名批量更新，
 新增/编辑 Key 在进入模型选择器前会保留全部表单草稿。
 

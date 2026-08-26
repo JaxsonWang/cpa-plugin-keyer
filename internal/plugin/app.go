@@ -262,7 +262,7 @@ func (a *App) managementRegistration() ManagementRegistrationResponse {
 			{Method: http.MethodGet, Path: base + "/status", Description: "Show cpa-keyer runtime status."},
 		},
 		Resources: []ResourceRoute{
-			{Path: web.IndexPath, Menu: "Key Policy", Description: "Web UI for managing downstream CPA key policies."},
+			{Path: web.IndexPath, Menu: "Keyer", Description: "Web UI for managing downstream CPA key policies."},
 		},
 	}
 }

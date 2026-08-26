@@ -70,7 +70,7 @@ function TopNav() {
             <NavIcon name="logout" />{t("header.logout")}
           </button>
         </div>
-        <div className="tn-version">CPA PLUGIN · v0.6.0</div>
+        <div className="tn-version">CPA PLUGIN · v0.6.1</div>
       </div>
     </aside>
   );

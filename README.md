@@ -15,7 +15,7 @@ It issues plugin-owned `cpa_…` keys and enforces an exact model allow-list, RP
 The plugin ID is now `cpa-keyer`, and the repository is
 [`JaxsonWang/cpa-plugin-keyer`](https://github.com/JaxsonWang/cpa-plugin-keyer).
 Library/archive names, Management API paths, and resource paths use the new ID.
-The redesigned UI bundles all styles and SVG assets locally, syncs selected
+CPA displays the plugin and its resource menu as `Keyer`. The redesigned UI bundles all styles and SVG assets locally, syncs selected
 model prices in one action from `https://models.dev/api.json`, and preserves the
 complete create/edit form draft while the standalone model picker is open.
 
