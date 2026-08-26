@@ -10,7 +10,7 @@ It issues plugin-owned `cpa_…` keys and enforces an exact model allow-list, RP
 | **License** | MIT |
 | **中文说明** | [README.zh-CN.md](./README.zh-CN.md) |
 
-## v0.7.1 usage analytics and CPA-integrated UI
+## v0.7.2 usage analytics, CPA-integrated UI, and SQLite state
 
 The embedded UI now follows CPA's light, white, and dark management themes and
 uses a compact local section rail for Overview, Request events, Key management,

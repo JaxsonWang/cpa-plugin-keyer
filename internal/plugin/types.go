@@ -33,7 +33,7 @@ const (
 const (
 	PluginID   = "cpa-keyer"
 	PluginName = "Keyer"
-	Version    = "0.7.1"
+	Version    = "0.7.2"
 )
 
 type Envelope struct {

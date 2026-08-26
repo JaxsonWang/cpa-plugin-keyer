@@ -70,7 +70,7 @@ describe("App shell", () => {
     expect(container.querySelector(".topnav")).not.toBeNull();
     expect(container.querySelector(".workspace-header")).not.toBeNull();
     expect(container.querySelector(".tn-title")?.textContent).toBe("Keyer");
-    expect(container.querySelector(".tn-version")?.textContent).toBe("KEYER · v0.7.1");
+    expect(container.querySelector(".tn-version")?.textContent).toBe("KEYER · v0.7.2");
     const topLinks = Array.from(container.querySelectorAll(".topnav-actions a"), (link) => link.textContent);
     expect(topLinks).toEqual(["概览", "请求事件", "Key 列表", "新建 Key"]);
     expect(container.querySelectorAll(".topnav-actions svg")).toHaveLength(4);
