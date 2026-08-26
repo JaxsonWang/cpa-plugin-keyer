@@ -1,9 +1,12 @@
 {
   "header": {
-    "title": "cpa-key-policy 管理面板",
+    "title": "cpa-keyer 管理面板",
     "keyList": "Key 列表",
     "newKey": "新建 Key",
-    "logout": "登出"
+    "logout": "登出",
+    "connected": "已連線",
+    "workspaceKicker": "存取控制工作台",
+    "runtimeReady": "運作正常"
   },
   "login": {
     "subTitle": "登入 CLIProxyAPI",
@@ -71,16 +74,30 @@
       "tabNew": "新建",
       "callCount": "{{n}} 次呼叫",
       "noLimit": "不限"
-    }
+    },
+    "eyebrow": "金鑰資產",
+    "pageHint": "集中管理下游存取憑證、模型權限與即時用量。",
+    "statTotal": "金鑰總數",
+    "statTotalHint": "目前策略資產",
+    "statEnabled": "已啟用",
+    "statEnabledHint": "共 {{total}} 個金鑰",
+    "statModels": "授權模型",
+    "statModelsHint": "去重後的模型數",
+    "statSpend": "今日用量",
+    "statSpendHint": "全部金鑰累計"
   },
   "edit": {
     "title": "編輯 Key · {{id}}",
     "notFound": "找不到",
-    "save": "儲存修改"
+    "save": "儲存修改",
+    "eyebrow": "策略設定",
+    "pageHint": "調整存取邊界、速率限制與模型計價。"
   },
   "new": {
     "title": "新建 Key",
-    "create": "建立 Key"
+    "create": "建立 Key",
+    "eyebrow": "簽發憑證",
+    "pageHint": "一次設定存取範圍、預算與模型價格，明文金鑰只顯示一次。"
   },
   "keyForm": {
     "idLabel": "Key ID *",
@@ -110,9 +127,9 @@
     "colCacheRead": "快取讀單價 $/M",
     "colCacheReadHint": "快取命中輸入 token 單價（prompt-caching read）。留 0 = 按 輸入單價 計。Claude 的 cache 讀 token 不含在輸入裡，單獨計；OpenAI/Gemini/Codex 的 cached 是輸入的子集，會從輸入裡拆出來按此價重算，不重複計費。",
     "colRecommend": "推薦",
-    "colRecommendHint": "若該模型在 litellm 價格庫中存在參考價，點擊以該價覆蓋本行三欄（輸入/輸出/快取讀）。價格源自社群維護表，僅供參考，請按需核對。",
+    "colRecommendHint": "若該模型在 models.dev 價格庫中存在參考價，點擊以該價覆蓋本行三欄（輸入/輸出/快取讀）。價格源自社群維護表，僅供參考，請按需核對。",
     "recommend": "推薦",
-    "recommendTitle": "用 litellm 社群參考價覆蓋本列價格",
+    "recommendTitle": "用 models.dev 社群參考價覆蓋本列價格",
     "idRequired": "id 不能為空",
     "submitting": "提交中…",
     "cancel": "取消",
@@ -123,7 +140,14 @@
       "sectionAccess": "存取",
       "sectionModels": "模型與計價"
     },
-    "colModel": "模型"
+    "colModel": "模型",
+    "syncPriceTitle": "同步模型價格",
+    "syncPriceHint": "從 models.dev 取得最新公開價格，並依精確模型名稱批次覆蓋 token 價格。",
+    "syncPrice": "同步價格",
+    "syncingPrice": "同步中…",
+    "syncPriceDone": "已同步 {{matched}} / {{total}} 個模型；未匹配項維持原價。",
+    "syncPriceFailed": "價格同步失敗",
+    "syncPriceError": "同步失敗：{{message}}"
   },
   "picker": {
     "loading": "載入可用模型…",
@@ -139,7 +163,8 @@
     "defaultTitle": "Key 已產生",
     "warning": "⚠ 這是明文 key，僅顯示一次，關閉後無法再次檢視，請立即儲存。",
     "copy": "複製",
-    "saved": "我已儲存，關閉"
+    "saved": "我已儲存，關閉",
+    "copied": "已複製"
   },
   "usage": {
     "today": "今日",
@@ -190,5 +215,10 @@
     },
     "noModel": "該 key 未設定任何模型",
     "colModel": "模型"
+  },
+  "dialog": {
+    "confirmTitle": "確認執行此操作",
+    "cancel": "取消",
+    "processing": "處理中…"
   }
 }

@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"cpa-key-policy/internal/plugin/web"
-	"cpa-key-policy/internal/policy"
+	"github.com/JaxsonWang/cpa-plugin-keyer/internal/plugin/web"
+	"github.com/JaxsonWang/cpa-plugin-keyer/internal/policy"
 )
 
 type App struct {
@@ -90,8 +90,8 @@ func (a *App) registration() Registration {
 		Metadata: Metadata{
 			Name:             PluginName,
 			Version:          Version,
-			Author:           "cpa-key-policy",
-			GitHubRepository: "https://github.com/JaxsonWang/cpa-plugin-key-policy",
+			Author:           "JaxsonWang",
+			GitHubRepository: "https://github.com/JaxsonWang/cpa-plugin-keyer",
 			ConfigFields: []ConfigField{
 				{Name: "enabled", Type: "boolean", Description: "Enable or disable this plugin without unloading it."},
 				{Name: "state_file", Type: "string", Description: "JSON state file used for key policy changes made through the Management API."},
@@ -259,7 +259,7 @@ func (a *App) managementRegistration() ManagementRegistrationResponse {
 			{Method: http.MethodPost, Path: base + "/keys/reset-rpm", Description: "Reset one downstream CPA key RPM counter by id."},
 			{Method: http.MethodPost, Path: base + "/keys/reset-usage", Description: "Reset daily and weekly usage for all downstream CPA keys."},
 			{Method: http.MethodGet, Path: base + "/keys/usage", Description: "Per-model usage breakdown for one downstream CPA key by id."},
-			{Method: http.MethodGet, Path: base + "/status", Description: "Show cpa-key-policy runtime status."},
+			{Method: http.MethodGet, Path: base + "/status", Description: "Show cpa-keyer runtime status."},
 		},
 		Resources: []ResourceRoute{
 			{Path: web.IndexPath, Menu: "Key Policy", Description: "Web UI for managing downstream CPA key policies."},

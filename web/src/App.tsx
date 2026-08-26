@@ -15,9 +15,28 @@ function useAuthTick() {
   return isAuthed();
 }
 
-// Desktop top horizontal nav. Mirrors the Stitch "Quiet Paper" design: left =
-// app title + base url, right = nav links + logout. Mobile keeps the legacy
-// .header (hidden on desktop via CSS) and bottom tab bar instead.
+function BrandMark() {
+  return (
+    <svg className="brand-mark" viewBox="0 0 42 42" aria-hidden="true">
+      <path d="M10 8h17a7 7 0 0 1 0 14H16" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+      <path d="M16 16v18M16 27h12" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+      <circle cx="30" cy="31" r="3" fill="currentColor" />
+    </svg>
+  );
+}
+
+function NavIcon({ name }: { name: "keys" | "new" | "logout" }) {
+  if (name === "new") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>;
+  }
+  if (name === "logout") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H5v14h5M14 8l4 4-4 4M8 12h10" /></svg>;
+  }
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11a4 4 0 1 1 3.7 4H4v-4h4ZM14 11h6M18 9v4" /></svg>;
+}
+
+// Desktop uses a compact operator-console sidebar. Mobile keeps the existing
+// page headers and bottom tab bar to preserve one-handed interaction.
 function TopNav() {
   const t = useT();
   const nav = useNavigate();
@@ -28,24 +47,56 @@ function TopNav() {
   const onKeys = loc.pathname === "/keys" || loc.pathname.startsWith("/keys/");
   const onNew = loc.pathname === "/keys/new" || loc.pathname.startsWith("/keys/new/");
   return (
-    <div className="topnav">
+    <aside className="topnav">
       <div className="topnav-inner">
         <div className="topnav-brand">
-          <span className="tn-title">{t("header.title")}</span>
-          <span className="tn-sub">{s.baseUrl}</span>
+          <BrandMark />
+          <span className="tn-brand-copy">
+            <span className="tn-title">cpa-keyer</span>
+            <span className="tn-kicker">KEY ACCESS CONTROL</span>
+          </span>
+        </div>
+        <div className="tn-connection">
+          <span className="connection-dot" />
+          <span><strong>{t("header.connected")}</strong><small>{s.baseUrl}</small></span>
         </div>
         <div className="topnav-actions">
-          <Link to="/keys" className={"tn-link" + (onKeys && !onNew ? " active" : "")}>{t("header.keyList")}</Link>
-          <Link to="/keys/new" className={"tn-link" + (onNew ? " active" : "")}>{t("header.newKey")}</Link>
+          <Link to="/keys" className={"tn-link" + (onKeys && !onNew ? " active" : "")}><NavIcon name="keys" />{t("header.keyList")}</Link>
+          <Link to="/keys/new" className={"tn-link" + (onNew ? " active" : "")}><NavIcon name="new" />{t("header.newKey")}</Link>
           <button
-            className="btn sm"
+            className="tn-link tn-logout"
             onClick={() => { clearSession(); nav("/login"); }}
           >
-            {t("header.logout")}
+            <NavIcon name="logout" />{t("header.logout")}
           </button>
         </div>
+        <div className="tn-version">CPA PLUGIN · v0.6.0</div>
       </div>
-    </div>
+    </aside>
+  );
+}
+
+function WorkspaceHeader() {
+  const t = useT();
+  const location = useLocation();
+  const path = location.pathname;
+  const title = path.includes("/models")
+    ? t("picker.title")
+    : path.includes("/usage")
+      ? t("keyUsage.title")
+      : path.includes("/edit")
+        ? t("edit.hTitle")
+        : path.startsWith("/keys/new")
+          ? t("header.newKey")
+          : t("header.keyList");
+  return (
+    <header className="workspace-header mobile-hidden">
+      <div>
+        <span className="workspace-kicker">{t("header.workspaceKicker")}</span>
+        <strong>{title}</strong>
+      </div>
+      <span className="workspace-status"><i /> {t("header.runtimeReady")}</span>
+    </header>
   );
 }
 
@@ -83,15 +134,20 @@ function Shell() {
   return (
     <div className="app">
       <TopNav />
-      <Routes>
-        <Route path="/keys" element={<KeyList />} />
-        <Route path="/keys/new" element={<KeyNew />} />
-        <Route path="/keys/new/models" element={<ModelPick />} />
-        <Route path="/keys/:id/edit" element={<KeyEdit />} />
-        <Route path="/keys/:id/edit/models" element={<ModelPick />} />
-        <Route path="/keys/:id/usage" element={<KeyUsage />} />
-        <Route path="*" element={<Navigate to="/keys" replace />} />
-      </Routes>
+      <main className="workspace">
+        <WorkspaceHeader />
+        <div className="workspace-content">
+          <Routes>
+            <Route path="/keys" element={<KeyList />} />
+            <Route path="/keys/new" element={<KeyNew />} />
+            <Route path="/keys/new/models" element={<ModelPick />} />
+            <Route path="/keys/:id/edit" element={<KeyEdit />} />
+            <Route path="/keys/:id/edit/models" element={<ModelPick />} />
+            <Route path="/keys/:id/usage" element={<KeyUsage />} />
+            <Route path="*" element={<Navigate to="/keys" replace />} />
+          </Routes>
+        </div>
+      </main>
     </div>
   );
 }

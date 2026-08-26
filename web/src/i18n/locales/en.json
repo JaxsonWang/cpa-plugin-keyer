@@ -1,9 +1,12 @@
 {
   "header": {
-    "title": "cpa-key-policy Management",
+    "title": "cpa-keyer Management",
     "keyList": "Keys",
     "newKey": "New Key",
-    "logout": "Log out"
+    "logout": "Log out",
+    "connected": "Connected",
+    "workspaceKicker": "Access control workspace",
+    "runtimeReady": "Runtime ready"
   },
   "login": {
     "subTitle": "Sign in to CLIProxyAPI",
@@ -71,17 +74,31 @@
       "tabNew": "New",
       "callCount": "{{n}} calls",
       "noLimit": "unlimited"
-    }
+    },
+    "eyebrow": "Key inventory",
+    "pageHint": "Manage downstream credentials, model access, and live usage from one workspace.",
+    "statTotal": "Total keys",
+    "statTotalHint": "Current policy inventory",
+    "statEnabled": "Enabled",
+    "statEnabledHint": "Across {{total}} keys",
+    "statModels": "Allowed models",
+    "statModelsHint": "Unique model ids",
+    "statSpend": "Today spend",
+    "statSpendHint": "Across all keys"
   },
   "edit": {
     "hTitle": "Edit Key",
     "title": "Edit Key · {{id}}",
     "notFound": "Not found",
-    "save": "Save changes"
+    "save": "Save changes",
+    "eyebrow": "Policy configuration",
+    "pageHint": "Adjust access boundaries, rate limits, and model pricing. "
   },
   "new": {
     "title": "New Key",
-    "create": "Create key"
+    "create": "Create key",
+    "eyebrow": "Issue credential",
+    "pageHint": "Configure access, budgets, and model pricing once. The plaintext key is shown once."
   },
   "keyForm": {
     "modelsEmpty": "No models selected",
@@ -114,9 +131,9 @@
     "colCacheRead": "Cache read $/M",
     "colCacheReadHint": "Unit price for cache-hit input tokens (prompt-caching read). 0 = charged at the input price. Claude's cache-read tokens are separate from input and billed on their own; OpenAI/Gemini/Codex's cached tokens are a subset of input and are split out and re-billed at this price (no double counting).",
     "colRecommend": "Recommend",
-    "colRecommendHint": "If this model has a reference price in the litellm price DB, click to overwrite this row's three columns (input/output/cache-read) with it. Source is a community-maintained table, for reference only — verify as needed.",
+    "colRecommendHint": "If this model has a reference price in the models.dev price DB, click to overwrite this row's three columns (input/output/cache-read) with it. Source is a community-maintained table, for reference only — verify as needed.",
     "recommend": "Recommend",
-    "recommendTitle": "Fill this row from the litellm community reference price",
+    "recommendTitle": "Fill this row from the models.dev community reference price",
     "idRequired": "id cannot be empty",
     "submitting": "Submitting…",
     "cancel": "Cancel",
@@ -127,7 +144,14 @@
       "sectionAccess": "Access",
       "sectionModels": "Models & pricing"
     },
-    "colModel": "Model"
+    "colModel": "Model",
+    "syncPriceTitle": "Sync model prices",
+    "syncPriceHint": "Fetch current public prices from models.dev and replace token prices by exact model id.",
+    "syncPrice": "Sync prices",
+    "syncingPrice": "Syncing…",
+    "syncPriceDone": "Synced {{matched}} / {{total}} models; unmatched rows were unchanged.",
+    "syncPriceFailed": "Price sync failed",
+    "syncPriceError": "Sync failed: {{message}}"
   },
   "picker": {
     "title": "Select models",
@@ -146,7 +170,8 @@
     "defaultTitle": "Key generated",
     "warning": "⚠ This is the plaintext key. It is shown only once and cannot be viewed again after closing — save it now.",
     "copy": "Copy",
-    "saved": "Saved, close"
+    "saved": "Saved, close",
+    "copied": "Copied"
   },
   "usage": {
     "today": "Today",
@@ -197,5 +222,10 @@
     },
     "noModel": "This key has no models configured",
     "colModel": "Model"
+  },
+  "dialog": {
+    "confirmTitle": "Confirm this action",
+    "cancel": "Cancel",
+    "processing": "Processing…"
   }
 }

@@ -8,6 +8,7 @@
 .gocache/
 .go-appdata/
 .go-localappdata/
+cpa-keyer-state.json
 cpa-key-policy-state.json
 coverage.out
 

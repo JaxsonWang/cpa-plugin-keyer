@@ -1,31 +1,18 @@
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import type { KeyPublic, ModelRule } from "../types";
+import type { KeyFormValues, KeyPublic, ModelRule } from "../types";
 import ModelPicker from "./ModelPicker";
 import {
   getPriceTable,
   lookupPrice,
   normalizePrice,
+  refreshPriceTable,
   type PriceTable,
 } from "../store/modelPrices";
 import { useT } from "../i18n";
 
-export interface KeyFormValues {
-  id: string;
-  name: string;
-  enabled: boolean;
-  rpm: number;
-  models: ModelRule[];
-  daily_limit_usd: number;
-  weekly_limit_usd: number;
-  // Per-key override for GET /v1/models. CPA cannot filter the model list per
-  // downstream key, so the only plugin-enforceable choice is binary: 401 (hide
-  // the list) or allow (client sees the full global list). Default false.
-  allow_models_endpoint?: boolean;
-}
-
 interface Props {
-  initial?: KeyPublic;
+  initial?: KeyPublic | KeyFormValues;
   idReadOnly?: boolean;
   submitLabel: string;
   onSubmit: (v: KeyFormValues) => Promise<void>;
@@ -42,6 +29,7 @@ interface Props {
   // renders a danger-outline button on the far right of the footer.
   dangerLabel?: string;
   onDanger?: () => void;
+  onDraftChange?: (draft: KeyFormValues) => void;
 }
 
 // Pricing for a single model, kept in form state alongside the selection.
@@ -79,6 +67,7 @@ export default function KeyForm({
   pickPath,
   dangerLabel,
   onDanger,
+  onDraftChange,
 }: Props) {
   const nav = useNavigate();
   const [id, setId] = useState(initial?.id ?? "");
@@ -109,12 +98,11 @@ export default function KeyForm({
   const [busy, setBusy] = useState(false);
   const [localErr, setLocalErr] = useState("");
   const [expandedPrice, setExpandedPrice] = useState<Record<string, boolean>>({});
+  const [syncingPrices, setSyncingPrices] = useState(false);
+  const [priceSyncResult, setPriceSyncResult] = useState("");
 
-  // LiteLLM price hints (community price table). Loaded once on mount, silent
-  // failure: if null/inflight, the per-row "recommend" affordance simply isn't
-  // rendered. The form is fully usable without it. Never auto-fills prices —
-  // the user must click "recommend" per row (replace semantics, overwrites
-  // whatever was in that row).
+  // models.dev price hints are loaded passively for per-row recommendations.
+  // The explicit sync action below always refreshes the remote catalog first.
   const [priceTable, setPriceTable] = useState<PriceTable | null>(null);
   useEffect(() => {
     let alive = true;
@@ -158,7 +146,7 @@ export default function KeyForm({
     }));
   };
 
-  // One-click fill this row from LiteLLM community prices. Replace semantics:
+  // One-click fill this row from models.dev. Replace semantics:
   // overwrites all three fields (even non-zero user-entered ones). Lookup is by
   // the real model id; the price writes back to this model's row.
   const recommend = (m: ModelRule) => {
@@ -180,6 +168,67 @@ export default function KeyForm({
     }));
   };
 
+  const pricedModels = useCallback((): ModelRule[] => models.map((model) => {
+    const row = prices[priceKey(model)];
+    return {
+      ...model,
+      input_price_per_million: normalizePrice(row?.input_price_per_million ?? 0),
+      output_price_per_million: normalizePrice(row?.output_price_per_million ?? 0),
+      cache_read_price_per_million: normalizePrice(row?.cache_read_price_per_million ?? 0),
+      billing_mode: row?.billing_mode === "per_call" ? "per_call" : "tokens",
+      per_call_usd: normalizePrice(row?.per_call_usd ?? 0),
+    };
+  }), [models, prices]);
+
+  useEffect(() => {
+    onDraftChange?.({
+      id,
+      name,
+      enabled,
+      rpm,
+      models: pricedModels(),
+      daily_limit_usd: dailyLimit,
+      weekly_limit_usd: weeklyLimit,
+      allow_models_endpoint: allowModels,
+    });
+  }, [allowModels, dailyLimit, enabled, id, name, onDraftChange, pricedModels, rpm, weeklyLimit]);
+
+  const syncPrices = async () => {
+    setSyncingPrices(true);
+    setPriceSyncResult("");
+    try {
+      const table = await refreshPriceTable();
+      setPriceTable(table);
+      const suggestions = new Map<string, NonNullable<ReturnType<typeof lookupPrice>>>();
+      for (const model of models) {
+        const suggestion = lookupPrice(table, model.model);
+        if (suggestion) suggestions.set(priceKey(model), suggestion);
+      }
+      setPrices((current) => {
+        const next = { ...current };
+        for (const model of models) {
+          const key = priceKey(model);
+          const suggestion = suggestions.get(key);
+          if (!suggestion) continue;
+          next[key] = {
+            input_price_per_million: suggestion.input_price_per_million,
+            output_price_per_million: suggestion.output_price_per_million,
+            cache_read_price_per_million: suggestion.cache_read_price_per_million,
+            billing_mode: current[key]?.billing_mode ?? "tokens",
+            per_call_usd: current[key]?.per_call_usd ?? 0,
+          };
+        }
+        return next;
+      });
+      setPriceSyncResult(t("keyForm.syncPriceDone", { matched: suggestions.size, total: models.length }));
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : t("keyForm.syncPriceFailed");
+      setPriceSyncResult(t("keyForm.syncPriceError", { message }));
+    } finally {
+      setSyncingPrices(false);
+    }
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLocalErr("");
@@ -187,18 +236,6 @@ export default function KeyForm({
       setLocalErr(t("keyForm.idRequired"));
       return;
     }
-    // Stamp the per-model pricing back onto the model rules before submit.
-    const pricedModels: ModelRule[] = models.map((m) => {
-      const row = prices[priceKey(m)];
-      return {
-        ...m,
-        input_price_per_million: normalizePrice(row?.input_price_per_million ?? 0),
-        output_price_per_million: normalizePrice(row?.output_price_per_million ?? 0),
-        cache_read_price_per_million: normalizePrice(row?.cache_read_price_per_million ?? 0),
-        billing_mode: row?.billing_mode === "per_call" ? "per_call" : "tokens",
-        per_call_usd: normalizePrice(row?.per_call_usd ?? 0),
-      };
-    });
     setBusy(true);
     try {
       await onSubmit({
@@ -206,7 +243,7 @@ export default function KeyForm({
         name: name.trim(),
         enabled,
         rpm,
-        models: pricedModels,
+        models: pricedModels(),
         daily_limit_usd: dailyLimit,
         weekly_limit_usd: weeklyLimit,
         allow_models_endpoint: allowModels,
@@ -516,7 +553,7 @@ export default function KeyForm({
                     }} aria-label={t("keyForm.removeModel")}>×</button>
                   </span>
                 ))}
-                <button type="button" className="mc-add" onClick={() => nav(pickPath, { state: { models } })}>
+                <button type="button" className="mc-add" onClick={() => nav(pickPath, { state: { models: pricedModels() } })}>
                   + {t("keyForm.addModel")}
                 </button>
               </div>
@@ -526,6 +563,16 @@ export default function KeyForm({
           </div>
           {models.length > 0 && (
             <div className="kf-model-list">
+              <div className="price-sync-bar">
+                <div>
+                  <strong>{t("keyForm.syncPriceTitle")}</strong>
+                  <span>{t("keyForm.syncPriceHint")}</span>
+                </div>
+                <button type="button" className="btn sync-price-btn" disabled={syncingPrices} onClick={() => void syncPrices()}>
+                  {syncingPrices ? t("keyForm.syncingPrice") : t("keyForm.syncPrice")}
+                </button>
+              </div>
+              {priceSyncResult && <div className="sync-result" role="status">{priceSyncResult}</div>}
               {models.map((m) => {
                 const key = priceKey(m);
                 const row = prices[key];
@@ -658,7 +705,7 @@ export default function KeyForm({
                 }} aria-label={t("keyForm.removeModel")}>×</button>
               </span>
             ))}
-            <button type="button" className="mc-add" onClick={() => nav(pickPath, { state: { models } })}>
+            <button type="button" className="mc-add" onClick={() => nav(pickPath, { state: { models: pricedModels() } })}>
               + {t("keyForm.addModel")}
             </button>
           </div>
@@ -673,7 +720,16 @@ export default function KeyForm({
           (values retained but dormant) and a single $/call input is shown. */}
       {models.length > 0 && (
         <div className="form-row" style={{ marginTop: 8 }}>
-          <label>{t("keyForm.priceLabel")}</label>
+          <div className="price-section-head">
+            <div>
+              <label>{t("keyForm.priceLabel")}</label>
+              <p>{t("keyForm.syncPriceHint")}</p>
+            </div>
+            <button type="button" className="btn sync-price-btn" disabled={syncingPrices} onClick={() => void syncPrices()}>
+              {syncingPrices ? t("keyForm.syncingPrice") : t("keyForm.syncPrice")}
+            </button>
+          </div>
+          {priceSyncResult && <div className="sync-result" role="status">{priceSyncResult}</div>}
           <div className="card table-wrap" style={{ padding: 0 }}>
             <table>
               <thead>

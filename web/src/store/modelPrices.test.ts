@@ -1,204 +1,145 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  parseLiteLLM,
-  lookupPrice,
-  getPriceTable,
-  normalizePrice,
   _resetPriceCache,
+  getPriceTable,
+  lookupPrice,
+  normalizePrice,
+  parseModelsDev,
+  refreshPriceTable,
 } from "./modelPrices";
 
 beforeEach(() => {
   _resetPriceCache();
   sessionStorage.clear();
+  vi.unstubAllGlobals();
 });
 
-describe("parseLiteLLM", () => {
-  it("converts per-token costs to per-million", () => {
-    const table = parseLiteLLM({
-      "claude-3-5-sonnet-20241022": {
-        input_cost_per_token: 0.000003,
-        output_cost_per_token: 0.000015,
-        cache_read_input_token_cost: 0.0000003,
+describe("parseModelsDev", () => {
+  it("maps models.dev per-million costs without rescaling", () => {
+    const table = parseModelsDev({
+      anthropic: {
+        id: "anthropic",
+        models: {
+          "claude-sonnet-4-5": {
+            id: "claude-sonnet-4-5",
+            cost: { input: 3, output: 15, cache_read: 0.3 },
+          },
+        },
       },
     });
-    const row = lookupPrice(table, "claude-3-5-sonnet-20241022");
-    expect(row).not.toBeNull();
-    expect(row!.input_price_per_million).toBeCloseTo(3, 5);
-    expect(row!.output_price_per_million).toBeCloseTo(15, 5);
-    expect(row!.cache_read_price_per_million).toBeCloseTo(0.3, 5);
+    expect(lookupPrice(table, "CLAUDE-SONNET-4-5")).toEqual({
+      input_price_per_million: 3,
+      output_price_per_million: 15,
+      cache_read_price_per_million: 0.3,
+    });
   });
 
-  it("normalizes binary floating-point tails to clean decimal prices", () => {
-    const table = parseLiteLLM({
-      "gpt-clean": {
-        input_cost_per_token: 0.0000002,
-        output_cost_per_token: 0.0000012,
-        cache_read_input_token_cost: 0.0000002,
+  it("prefers a first-party catalog over an earlier gateway duplicate", () => {
+    const table = parseModelsDev({
+      gateway: {
+        id: "gateway",
+        models: { "gpt-4o": { id: "gpt-4o", cost: { input: 8, output: 24 } } },
+      },
+      openai: {
+        id: "openai",
+        models: { "gpt-4o": { id: "gpt-4o", cost: { input: 2.5, output: 10, cache_read: 1.25 } } },
       },
     });
-    const row = lookupPrice(table, "gpt-clean")!;
-    expect(row.input_price_per_million).toBe(0.2);
-    expect(row.output_price_per_million).toBe(1.2);
-    expect(row.cache_read_price_per_million).toBe(0.2);
-    expect(normalizePrice(0.19999999999999998)).toBe(0.2);
+    expect(lookupPrice(table, "gpt-4o")).toEqual({
+      input_price_per_million: 2.5,
+      output_price_per_million: 10,
+      cache_read_price_per_million: 1.25,
+    });
   });
 
-  it("matches case-insensitively", () => {
-    const table = parseLiteLLM({
-      "GPT-4o-mini": {
-        input_cost_per_token: 0.00000015,
-        output_cost_per_token: 0.0000006,
+  it("uses the model object id and defaults missing components to zero", () => {
+    const table = parseModelsDev({
+      provider: {
+        models: {
+          alias: { id: "Real-Model", cost: { input: 0.2 } },
+          missing: { id: "missing", cost: {} },
+        },
       },
     });
-    expect(lookupPrice(table, "gpt-4o-mini")).not.toBeNull();
-    expect(lookupPrice(table, "GPT-4O-MINI")).not.toBeNull();
+    expect(lookupPrice(table, "real-model")).toEqual({
+      input_price_per_million: 0.2,
+      output_price_per_million: 0,
+      cache_read_price_per_million: 0,
+    });
+    expect(lookupPrice(table, "missing")).toBeNull();
   });
 
-  it("defaults missing cache_read to 0, keeps entry usable", () => {
-    const table = parseLiteLLM({
-      "ai21.j2-mid-v1": {
-        input_cost_per_token: 0.00001,
-        output_cost_per_token: 0.000012,
-        // no cache_read_input_token_cost
+  it("normalizes floating-point tails and ignores invalid providers", () => {
+    const table = parseModelsDev({
+      invalid: "nope",
+      valid: {
+        models: {
+          clean: { cost: { input: 0.19999999999999998, output: -1 } },
+        },
       },
     });
-    const row = lookupPrice(table, "ai21.j2-mid-v1");
-    expect(row).not.toBeNull();
-    expect(row!.input_price_per_million).toBeCloseTo(10, 5);
-    expect(row!.output_price_per_million).toBeCloseTo(12, 5);
-    expect(row!.cache_read_price_per_million).toBe(0);
-  });
-
-  it("skips sample_spec and non-object entries", () => {
-    const table = parseLiteLLM({
-      sample_spec: { input_cost_per_token: 0.000003, output_cost_per_token: 0.000015 },
-      "real-model": { input_cost_per_token: 5, output_cost_per_token: 15 },
-      "junk-string": "not-an-object",
-      "junk-null": null,
+    expect(lookupPrice(table, "clean")).toEqual({
+      input_price_per_million: 0.2,
+      output_price_per_million: 0,
+      cache_read_price_per_million: 0,
     });
-    expect(lookupPrice(table, "sample_spec")).toBeNull();
-    expect(lookupPrice(table, "real-model")).not.toBeNull();
-    expect(table.size).toBe(1);
-  });
-
-  it("skips entries with no usable price info", () => {
-    const table = parseLiteLLM({
-      "no-price": { mode: "chat", max_input_tokens: 8192 },
-      "zero-price": { input_cost_per_token: 0, output_cost_per_token: 0 },
-    });
-    expect(table.size).toBe(0);
-  });
-
-  it("treats negative / non-finite costs as 0", () => {
-    const n = Number.NaN;
-    const table = parseLiteLLM({
-      "weird": {
-        input_cost_per_token: -1,
-        output_cost_per_token: n,
-        cache_read_input_token_cost: Infinity,
-      },
-    });
-    expect(table.size).toBe(0);
-  });
-
-  it("returns null for unknown / empty model", () => {
-    const table = parseLiteLLM({ "m": { input_cost_per_token: 1 } });
-    expect(lookupPrice(table, "nope")).toBeNull();
-    expect(lookupPrice(table, "")).toBeNull();
-    expect(lookupPrice(null, "m")).toBeNull();
+    expect(normalizePrice(Number.NaN)).toBe(0);
   });
 });
 
-describe("getPriceTable caching", () => {
-  it("normalizes price tails from an existing session cache", async () => {
-    sessionStorage.setItem("cpa-key-policy:litellm-prices", JSON.stringify({
+describe("models.dev price caching", () => {
+  const payload = {
+    openai: {
+      id: "openai",
+      models: { "gpt-4o": { id: "gpt-4o", cost: { input: 2.5, output: 10 } } },
+    },
+  };
+
+  it("fetches once and reuses the session cache", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(payload), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(lookupPrice(await getPriceTable(), "gpt-4o")).not.toBeNull();
+    expect(lookupPrice(await getPriceTable(), "gpt-4o")).not.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem("cpa-keyer:models-dev-prices")).not.toBeNull();
+  });
+
+  it("refreshes explicitly even when a valid cache exists", async () => {
+    sessionStorage.setItem("cpa-keyer:models-dev-prices", JSON.stringify({
       fetchedAt: Date.now(),
       table: [["cached", {
-        input_price_per_million: 0.19999999999999998,
-        output_price_per_million: 1.2,
-        cache_read_price_per_million: 0.19999999999999998,
+        input_price_per_million: 1,
+        output_price_per_million: 2,
+        cache_read_price_per_million: 0,
       }]],
     }));
-
-    const table = await getPriceTable();
-    expect(lookupPrice(table, "cached")).toEqual({
-      input_price_per_million: 0.2,
-      output_price_per_million: 1.2,
-      cache_read_price_per_million: 0.2,
-    });
-  });
-
-  it("fetches once, caches in sessionStorage, returns from cache on second call", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          "gpt-4o": { input_cost_per_token: 0.0000025, output_cost_per_token: 0.00001 },
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+      new Response(JSON.stringify(payload), { status: 200 }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const t1 = await getPriceTable();
-    expect(t1).not.toBeNull();
+    expect(lookupPrice(await getPriceTable(), "cached")).not.toBeNull();
+    expect(lookupPrice(await refreshPriceTable(), "gpt-4o")).not.toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    // second call should hit sessionStorage, no new fetch
-    const t2 = await getPriceTable();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(lookupPrice(t2, "gpt-4o")).not.toBeNull();
-
-    // cache written to sessionStorage as a stamped envelope
-    const raw = sessionStorage.getItem("cpa-key-policy:litellm-prices");
-    expect(raw).not.toBeNull();
-    const env = JSON.parse(raw!);
-    expect(typeof env.fetchedAt).toBe("number");
-    expect(Array.isArray(env.table)).toBe(true);
   });
 
-  it("returns null on non-200 without throwing", async () => {
+  it("returns null for passive load failures and surfaces explicit sync failures", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("", { status: 503 })));
-    const t = await getPriceTable();
-    expect(t).toBeNull();
-    // failed fetch must not write a cache
-    expect(sessionStorage.getItem("cpa-key-policy:litellm-prices")).toBeNull();
+    expect(await getPriceTable()).toBeNull();
+    await expect(refreshPriceTable()).rejects.toThrow("models.dev request failed (503)");
   });
 
-  it("returns null when fetch throws (network)", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network")));
-    const t = await getPriceTable();
-    expect(t).toBeNull();
-  });
-
-  it("treats expired cache as a miss and refetches", async () => {
-    // seed an expired cache
-    const expired = {
-      fetchedAt: Date.now() - 25 * 60 * 60 * 1000, // 25h ago
-      table: [["stale-model", { input_price_per_million: 0, output_price_per_million: 0, cache_read_price_per_million: 0 }]],
-    };
-    sessionStorage.setItem("cpa-key-policy:litellm-prices", JSON.stringify(expired));
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ "fresh": { input_cost_per_token: 1, output_cost_per_token: 2 } }), { status: 200 }),
-      ),
-    );
-
-    const t = await getPriceTable();
-    expect(t).not.toBeNull();
-    expect(lookupPrice(t, "fresh")).not.toBeNull();
-    expect(lookupPrice(t, "stale-model")).toBeNull();
-  });
-
-  it("dedupes concurrent calls to a single fetch (inflight memo)", async () => {
+  it("deduplicates concurrent requests", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ "x": { input_cost_per_token: 1 } }), { status: 200 }),
+      new Response(JSON.stringify(payload), { status: 200 }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const [a, b] = await Promise.all([getPriceTable(), getPriceTable()]);
-    expect(a).not.toBeNull();
-    expect(b).not.toBeNull();
+    const [first, second] = await Promise.all([getPriceTable(), getPriceTable()]);
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

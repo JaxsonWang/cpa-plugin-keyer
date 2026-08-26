@@ -173,7 +173,7 @@ type State struct {
 }
 
 func DefaultConfig() Config {
-	return Config{Enabled: true, StateFile: "cpa-key-policy-state.json"}
+	return Config{Enabled: true, StateFile: "cpa-keyer-state.json"}
 }
 
 func DecodeConfig(raw []byte) (Config, error) {

@@ -1,4 +1,4 @@
-# cpa-key-policy（中文说明）
+# cpa-keyer（中文说明）
 
 面向 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 的 WebSocket 兼容下游 API Key 策略插件。
 
@@ -6,9 +6,23 @@
 
 | | |
 |---|---|
-| **仓库** | [JaxsonWang/cpa-plugin-key-policy](https://github.com/JaxsonWang/cpa-plugin-key-policy) |
+| **仓库** | [JaxsonWang/cpa-plugin-keyer](https://github.com/JaxsonWang/cpa-plugin-keyer) |
 | **协议** | MIT |
 | **English** | [README.md](./README.md) |
+
+## v0.6.0 更名与管理界面
+
+插件 ID 已从 `cpa-key-policy` 改为 `cpa-keyer`，仓库改为
+[`JaxsonWang/cpa-plugin-keyer`](https://github.com/JaxsonWang/cpa-plugin-keyer)，共享库、
+压缩包、管理 API 和资源路径均使用新名称。新界面内置全部样式与 SVG，不依赖 CDN；
+模型价格可通过“同步价格”从 `https://models.dev/api.json` 按精确模型名批量更新，
+新增/编辑 Key 在进入模型选择器前会保留全部表单草稿。
+
+更名不会改变 state 格式或现有 `cpa_…` Key。升级时先记录旧配置
+`plugins.configs.cpa-key-policy.state_file` 的实际值，再卸载旧插件并安装
+`cpa-keyer`，然后把同一个旧 state file 路径写入
+`plugins.configs.cpa-keyer.state_file`。不要先用新的默认空文件启动，否则界面只会
+显示一个全新的空状态；全新安装才使用默认的 `cpa-keyer-state.json`。
 
 ## v0.5.3 旧 Key 兼容
 
@@ -82,30 +96,30 @@ plugins:
   enabled: true
   dir: "plugins"
   configs:
-    cpa-key-policy:
+    cpa-keyer:
       enabled: true
       priority: 10
-      state_file: "cpa-key-policy-state.json"
+      state_file: "cpa-keyer-state.json"
 ```
 
 CPA 插件商店源：
 
 ```text
-https://raw.githubusercontent.com/JaxsonWang/cpa-plugin-key-policy/main/registry.json
+https://raw.githubusercontent.com/JaxsonWang/cpa-plugin-keyer/main/registry.json
 ```
 
 将该 URL 添加到 `plugins.store-sources`，然后选择 `JaxsonWang` 来源的
-`cpa-key-policy`。如果已经安装官方源中的 `origin652` 版本，需要先卸载该插件
+`cpa-keyer`。如果已经安装官方源中的 `origin652` 版本，需要先卸载该插件
 条目再切换商店来源。卸载前先记录
-`plugins.configs.cpa-key-policy.state_file`，因为卸载会清除插件配置，但不会删除
+`plugins.configs.cpa-key-policy.state_file`，因为卸载会清除旧插件配置，但不会删除
 独立的 state file。安装 `JaxsonWang` 版本后，先恢复相同的 `state_file` 路径，
-再打开 Key Policy 页面核对原有 key 与用量数据。
+再打开 cpa-keyer 页面核对原有 key 与用量数据。
 
 规范的 key policy：
 
 ```yaml
 enabled: true
-state_file: ./cpa-key-policy-state.json
+state_file: ./cpa-keyer-state.json
 
 keys:
   - id: team-a
@@ -152,7 +166,7 @@ v0.5.0 state 版本为 `2`，加载旧配置/状态时自动迁移：
 插件加载后访问：
 
 ```text
-http://HOST:PORT/v0/resource/plugins/cpa-key-policy/index.html
+http://HOST:PORT/v0/resource/plugins/cpa-keyer/index.html
 ```
 
 使用 CPA management secret 登录。网页保留 key 管理、真实模型选择、定价、预算/RPM 与按模型用量；管理密钥只保存在内存，不写 `localStorage`。
@@ -167,7 +181,7 @@ VITE_CPA_BASE=http://127.0.0.1:8317 npm run dev
 
 ## 管理 API
 
-`/v0/management/plugins/cpa-key-policy` 下只保留：
+`/v0/management/plugins/cpa-keyer` 下只保留：
 
 - `GET/POST/PATCH/DELETE /keys`；
 - `POST /keys/rotate`；
@@ -179,7 +193,7 @@ VITE_CPA_BASE=http://127.0.0.1:8317 npm run dev
 创建 key，`plain_key` 只返回一次：
 
 ```bash
-curl -X POST "$CPA/v0/management/plugins/cpa-key-policy/keys" \
+curl -X POST "$CPA/v0/management/plugins/cpa-keyer/keys" \
   -H "Authorization: Bearer $MANAGEMENT_KEY" \
   -H "Content-Type: application/json" \
   -d '{

@@ -10,6 +10,7 @@ import {
 } from "../api/keys";
 import type { KeyPublic } from "../types";
 import PlainKeyModal from "../components/PlainKeyModal";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { useT } from "../i18n";
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -34,6 +35,10 @@ export default function KeyList() {
   const [loading, setLoading] = useState(true);
   const [plain, setPlain] = useState<string | null>(null);
   const [plainTitle, setPlainTitle] = useState<string>("");
+  const [pendingAction, setPendingAction] = useState<
+    { type: "rotate" | "delete" | "resetUsage"; id?: string } | null
+  >(null);
+  const [confirming, setConfirming] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -54,15 +59,14 @@ export default function KeyList() {
     void load();
   }, [load]);
 
-  const onRotate = async (id: string) => {
-    if (!confirm(t("keys.rotateConfirm", { id }))) return;
+  const rotate = async (id: string) => {
     try {
       const result = await rotateKey(id);
       setPlain(result.plain_key);
       setPlainTitle(t("keys.rotated"));
       void load();
     } catch (error) {
-      alert(errorMessage(error, t("keys.rotateFailed")));
+      setError(errorMessage(error, t("keys.rotateFailed")));
     }
   };
 
@@ -71,12 +75,11 @@ export default function KeyList() {
       await resetRPM(id);
       void load();
     } catch (error) {
-      alert(errorMessage(error, t("keys.resetFailed")));
+      setError(errorMessage(error, t("keys.resetFailed")));
     }
   };
 
-  const onResetUsage = async () => {
-    if (!confirm(t("keys.resetUsageConfirm"))) return;
+  const resetUsage = async () => {
     setResettingUsage(true);
     setError("");
     try {
@@ -89,8 +92,7 @@ export default function KeyList() {
     }
   };
 
-  const onDelete = async (id: string) => {
-    if (!confirm(t("keys.deleteConfirm", { id }))) return;
+  const remove = async (id: string) => {
     try {
       await deleteKey(id);
       setSelectedIDs((current) => {
@@ -100,9 +102,34 @@ export default function KeyList() {
       });
       void load();
     } catch (error) {
-      alert(errorMessage(error, t("keys.deleteFailed")));
+      setError(errorMessage(error, t("keys.deleteFailed")));
     }
   };
+
+  const confirmPendingAction = async () => {
+    if (!pendingAction) return;
+    setConfirming(true);
+    try {
+      if (pendingAction.type === "rotate" && pendingAction.id) await rotate(pendingAction.id);
+      if (pendingAction.type === "delete" && pendingAction.id) await remove(pendingAction.id);
+      if (pendingAction.type === "resetUsage") await resetUsage();
+      setPendingAction(null);
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  const confirmMessage = pendingAction?.type === "rotate"
+    ? t("keys.rotateConfirm", { id: pendingAction.id ?? "" })
+    : pendingAction?.type === "delete"
+      ? t("keys.deleteConfirm", { id: pendingAction.id ?? "" })
+      : t("keys.resetUsageConfirm");
+
+  const confirmLabel = pendingAction?.type === "rotate"
+    ? t("keys.rotate")
+    : pendingAction?.type === "delete"
+      ? t("keys.delete")
+      : t("keys.resetUsage");
 
   const onSetEnabled = async (id: string, enabled: boolean) => {
     setError("");
@@ -152,6 +179,9 @@ export default function KeyList() {
   const allSelected = keys.length > 0 && selectedIDs.size === keys.length;
   const partiallySelected = selectedIDs.size > 0 && !allSelected;
   const busy = updatingIDs.size > 0 || resettingUsage;
+  const enabledCount = keys.filter((key) => key.enabled).length;
+  const modelCount = new Set(keys.flatMap((key) => key.models.map((model) => model.model.toLowerCase()))).size;
+  const dailySpend = keys.reduce((total, key) => total + (key.usage.daily_usd ?? 0), 0);
 
   const onToggleAll = () => {
     setSelectedIDs(allSelected ? new Set() : new Set(keys.map((key) => key.id)));
@@ -168,8 +198,16 @@ export default function KeyList() {
 
   return (
     <div className="key-list-page">
+      <div className="mobile-only mobile-list-head">
+        <div><span>cpa-keyer</span><strong>{t("header.keyList")}</strong></div>
+        <span className="mobile-runtime"><i />{t("header.runtimeReady")}</span>
+      </div>
       <div className="fp-head mobile-hidden">
-        <h1>{t("header.keyList")}</h1>
+        <div className="page-heading">
+          <span>{t("keys.eyebrow")}</span>
+          <h1>{t("header.keyList")}</h1>
+          <p>{t("keys.pageHint")}</p>
+        </div>
         <div className="fp-actions">
           <button className="btn sm" disabled={loading || busy} onClick={load}>
             {t("keys.refresh")}
@@ -177,12 +215,21 @@ export default function KeyList() {
           <button
             className="btn sm danger-outline"
             disabled={loading || busy || keys.length === 0}
-            onClick={() => void onResetUsage()}
+            onClick={() => setPendingAction({ type: "resetUsage" })}
           >
             {resettingUsage ? t("keys.resettingUsage") : t("keys.resetUsage")}
           </button>
         </div>
       </div>
+
+      {!loading && (
+        <div className="key-overview-grid mobile-hidden">
+          <div className="overview-card primary"><span>{t("keys.statTotal")}</span><strong>{keys.length}</strong><small>{t("keys.statTotalHint")}</small></div>
+          <div className="overview-card"><span>{t("keys.statEnabled")}</span><strong>{enabledCount}</strong><small>{t("keys.statEnabledHint", { total: keys.length })}</small></div>
+          <div className="overview-card"><span>{t("keys.statModels")}</span><strong>{modelCount}</strong><small>{t("keys.statModelsHint")}</small></div>
+          <div className="overview-card spend"><span>{t("keys.statSpend")}</span><strong>${dailySpend.toFixed(4)}</strong><small>{t("keys.statSpendHint")}</small></div>
+        </div>
+      )}
 
       {error && <div className="error">{error}</div>}
 
@@ -220,7 +267,7 @@ export default function KeyList() {
             <button
               className="btn sm danger-outline mobile-only"
               disabled={loading || busy}
-              onClick={() => void onResetUsage()}
+              onClick={() => setPendingAction({ type: "resetUsage" })}
             >
               {resettingUsage ? t("keys.resettingUsage") : t("keys.resetUsage")}
             </button>
@@ -243,8 +290,8 @@ export default function KeyList() {
             onToggleAll={onToggleAll}
             onToggleSelected={onToggleSelected}
             onSetEnabled={onSetEnabled}
-            onDelete={onDelete}
-            onRotate={onRotate}
+            onDelete={(id) => setPendingAction({ type: "delete", id })}
+            onRotate={(id) => setPendingAction({ type: "rotate", id })}
             onReset={onReset}
           />
           <div className="card-stack mobile-only">
@@ -256,7 +303,7 @@ export default function KeyList() {
                 updating={updatingIDs.has(key.id)}
                 onToggleSelected={onToggleSelected}
                 onSetEnabled={onSetEnabled}
-                onDelete={onDelete}
+                onDelete={(id) => setPendingAction({ type: "delete", id })}
               />
             ))}
           </div>
@@ -273,6 +320,15 @@ export default function KeyList() {
           onClose={() => setPlain(null)}
         />
       )}
+      <ConfirmDialog
+        open={pendingAction !== null}
+        message={confirmMessage}
+        confirmLabel={confirmLabel}
+        danger={pendingAction?.type === "delete" || pendingAction?.type === "resetUsage"}
+        busy={confirming}
+        onCancel={() => setPendingAction(null)}
+        onConfirm={() => void confirmPendingAction()}
+      />
     </div>
   );
 }

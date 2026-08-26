@@ -1,6 +1,6 @@
-# cpa-key-policy plugin config. Replace placeholders and do not commit secrets.
+# cpa-keyer plugin config. Replace placeholders and do not commit secrets.
 enabled: true
-state_file: ./cpa-key-policy-state.json
+state_file: ./cpa-keyer-state.json
 
 keys:
   - id: team-a

@@ -2,13 +2,13 @@
   "schema_version": 1,
   "plugins": [
     {
-      "id": "cpa-key-policy",
-      "name": "CPA Key Policy",
+      "id": "cpa-keyer",
+      "name": "cpa-keyer",
       "description": "Plugin-owned downstream API keys with direct-model allowlists, RPM and USD budgets, usage accounting, and an embedded management UI.",
       "author": "JaxsonWang",
-      "version": "0.5.3",
-      "repository": "https://github.com/JaxsonWang/cpa-plugin-key-policy",
-      "homepage": "https://github.com/JaxsonWang/cpa-plugin-key-policy",
+      "version": "0.6.0",
+      "repository": "https://github.com/JaxsonWang/cpa-plugin-keyer",
+      "homepage": "https://github.com/JaxsonWang/cpa-plugin-keyer",
       "license": "MIT",
       "tags": ["Management", "Auth", "Policy", "Usage"]
     }

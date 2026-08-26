@@ -94,11 +94,11 @@ export default function ModelPick() {
   return (
     <div className="model-pick-page">
       <div className="mp-head">
-        <button type="button" className="btn sm" onClick={() => navigate(backTo)}>{t("keyUsage.back")}</button>
+        <button type="button" className="btn sm" onClick={() => navigate(backTo, { replace: true })}>{t("keyUsage.back")}</button>
         <h1>{t("picker.title")}</h1>
         <button
           className="btn primary sm"
-          onClick={() => navigate(backTo, { state: { pickedModels: rules } })}
+          onClick={() => navigate(backTo, { replace: true, state: { pickedModels: rules } })}
           disabled={loading}
         >
           {t("picker.done", { count: selected.size })}

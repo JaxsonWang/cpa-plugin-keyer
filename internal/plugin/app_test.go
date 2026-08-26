@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"cpa-key-policy/internal/policy"
+	"github.com/JaxsonWang/cpa-plugin-keyer/internal/policy"
 )
 
 func configureTestApp(t *testing.T, rpm int) (*App, string) {
@@ -516,11 +516,26 @@ func TestManagementRegistrationOmitsRemovedRoutes(t *testing.T) {
 	}
 }
 
+func TestRegistrationUsesCpaKeyerIdentity(t *testing.T) {
+	app := NewApp()
+	t.Cleanup(app.Shutdown)
+	registration := app.registration()
+	if PluginID != "cpa-keyer" || registration.Metadata.Name != "cpa-keyer" {
+		t.Fatalf("plugin identity = %q / %q, want cpa-keyer", PluginID, registration.Metadata.Name)
+	}
+	if registration.Metadata.Version != "0.6.0" {
+		t.Fatalf("plugin version = %q, want 0.6.0", registration.Metadata.Version)
+	}
+	if registration.Metadata.GitHubRepository != "https://github.com/JaxsonWang/cpa-plugin-keyer" {
+		t.Fatalf("repository = %q", registration.Metadata.GitHubRepository)
+	}
+}
+
 func TestManagementRegistrationIncludesGlobalUsageReset(t *testing.T) {
 	app := NewApp()
 	t.Cleanup(app.Shutdown)
 	for _, route := range app.managementRegistration().Routes {
-		if route.Method == http.MethodPost && route.Path == "/plugins/cpa-key-policy/keys/reset-usage" {
+		if route.Method == http.MethodPost && route.Path == "/plugins/cpa-keyer/keys/reset-usage" {
 			return
 		}
 	}
@@ -543,7 +558,7 @@ func TestManagementResetUsageClearsDailyAndWeeklyAndPersists(t *testing.T) {
 
 	request, _ := json.Marshal(ManagementRequest{
 		Method: http.MethodPost,
-		Path:   "/v0/management/plugins/cpa-key-policy/keys/reset-usage",
+		Path:   "/v0/management/plugins/cpa-keyer/keys/reset-usage",
 	})
 	raw, err := app.HandleMethod(MethodManagementHandle, request)
 	if err != nil {

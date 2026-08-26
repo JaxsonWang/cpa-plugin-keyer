@@ -39,6 +39,17 @@ export interface KeyPublic {
   updated_at?: string;
 }
 
+export interface KeyFormValues {
+  id: string;
+  name: string;
+  enabled: boolean;
+  rpm: number;
+  models: ModelRule[];
+  daily_limit_usd: number;
+  weekly_limit_usd: number;
+  allow_models_endpoint?: boolean;
+}
+
 export interface KeyWriteRequest {
   id: string;
   name?: string;

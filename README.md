@@ -1,4 +1,4 @@
-# cpa-key-policy
+# cpa-keyer
 
 WebSocket-compatible downstream API-key policy plugin for [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI).
 
@@ -6,9 +6,24 @@ It issues plugin-owned `cpa_…` keys and enforces an exact model allow-list, RP
 
 | | |
 |---|---|
-| **Repository** | [JaxsonWang/cpa-plugin-key-policy](https://github.com/JaxsonWang/cpa-plugin-key-policy) |
+| **Repository** | [JaxsonWang/cpa-plugin-keyer](https://github.com/JaxsonWang/cpa-plugin-keyer) |
 | **License** | MIT |
 | **中文说明** | [README.zh-CN.md](./README.zh-CN.md) |
+
+## v0.6.0 rename and management UI
+
+The plugin ID is now `cpa-keyer`, and the repository is
+[`JaxsonWang/cpa-plugin-keyer`](https://github.com/JaxsonWang/cpa-plugin-keyer).
+Library/archive names, Management API paths, and resource paths use the new ID.
+The redesigned UI bundles all styles and SVG assets locally, syncs selected
+model prices in one action from `https://models.dev/api.json`, and preserves the
+complete create/edit form draft while the standalone model picker is open.
+
+The rename does not change the state schema or existing `cpa_…` keys. Before
+removing the old plugin, record the exact value of
+`plugins.configs.cpa-key-policy.state_file`. Install `cpa-keyer`, then set
+`plugins.configs.cpa-keyer.state_file` to that same existing file before the
+first verification. Fresh installs use the new `cpa-keyer-state.json` default.
 
 ## v0.5.3 legacy-key compatibility
 
@@ -84,31 +99,31 @@ plugins:
   enabled: true
   dir: "plugins"
   configs:
-    cpa-key-policy:
+    cpa-keyer:
       enabled: true
       priority: 10
-      state_file: "cpa-key-policy-state.json"
+      state_file: "cpa-keyer-state.json"
 ```
 
 CPA plugin store source:
 
 ```text
-https://raw.githubusercontent.com/JaxsonWang/cpa-plugin-key-policy/main/registry.json
+https://raw.githubusercontent.com/JaxsonWang/cpa-plugin-keyer/main/registry.json
 ```
 
 Add this URL to `plugins.store-sources`, then select the `JaxsonWang` entry for
-`cpa-key-policy`. If the official `origin652` build is already installed,
+`cpa-keyer`. If the official `origin652` build is already installed,
 record `plugins.configs.cpa-key-policy.state_file` before uninstalling that
 plugin entry, because uninstalling removes the saved plugin config. The state
 file itself is separate from the plugin library and remains on disk. After
 installing the `JaxsonWang` build, restore the same `state_file` path before
-opening the Key Policy UI, then verify the existing keys and usage data.
+opening the cpa-keyer UI, then verify the existing keys and usage data.
 
 Canonical key policy shape:
 
 ```yaml
 enabled: true
-state_file: ./cpa-key-policy-state.json
+state_file: ./cpa-keyer-state.json
 
 keys:
   - id: team-a
@@ -155,7 +170,7 @@ After upgrading:
 After the plugin loads:
 
 ```text
-http://HOST:PORT/v0/resource/plugins/cpa-key-policy/index.html
+http://HOST:PORT/v0/resource/plugins/cpa-keyer/index.html
 ```
 
 Log in with the CPA management secret. The UI provides key management, direct model selection, price editing, budget/RPM policy, and per-model usage. The management secret remains in memory rather than `localStorage`.
@@ -170,7 +185,7 @@ VITE_CPA_BASE=http://127.0.0.1:8317 npm run dev
 
 ## Management API
 
-Exact plugin paths under `/v0/management/plugins/cpa-key-policy`:
+Exact plugin paths under `/v0/management/plugins/cpa-keyer`:
 
 - `GET/POST/PATCH/DELETE /keys`;
 - `POST /keys/rotate`;
@@ -182,7 +197,7 @@ Exact plugin paths under `/v0/management/plugins/cpa-key-policy`:
 Create a key; `plain_key` is returned once:
 
 ```bash
-curl -X POST "$CPA/v0/management/plugins/cpa-key-policy/keys" \
+curl -X POST "$CPA/v0/management/plugins/cpa-keyer/keys" \
   -H "Authorization: Bearer $MANAGEMENT_KEY" \
   -H "Content-Type: application/json" \
   -d '{

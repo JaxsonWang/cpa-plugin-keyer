@@ -1,34 +1,26 @@
-// Community price hints from LiteLLM's public model price table.
-//
-// The user picks CPA models in the key form. Each selected ModelRule stores the
-// exact model name that CPA resolves natively. We offer an
-// optional "recommend" affordance per row: if LiteLLM's table has a matching model
-// entry, the user can one-click fill that row's input/output/cache-read prices
-// (per million tokens).
-//
-// Design decisions (agreed with the user):
-//   - DO NOT pre-fill. Prices stay 0 until the user explicitly clicks "recommend".
-//   - Front-end fetches the raw JSON directly (no backend route, nothing embedded
-//     in the .so). Cached in sessionStorage with a 24h TTL.
-//   - Match `model` against LiteLLM top-level keys, case-insensitive. No
-//     provider second-pass, no fuzzy/substring matching. Miss → no recommend.
-//   - Map LiteLLM `input_cost_per_token`/`output_cost_per_token`/
-//     `cache_read_input_token_cost` (per-token USD) to the form's per-million
-//     fields by ×1e6. Missing fields → 0 (the form's "leave 0 = not billed"
-//     semantic). Partial hit is still a hit.
-//   - Clicking "recommend" OVERWRITES all three fields of that row (replace
-//     semantics, not fill-gaps).
-//   - Silent degradation: if the fetch is in flight or failed, we simply don't
-//     show a recommend button. The form is fully usable without it.
+// Model price hints from models.dev. The API already exposes USD prices per
+// million tokens, which is the same unit used by cpa-keyer model rules.
 
-const LITELLM_URL =
-  "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
-
-// sessionStorage key + stamped cache envelope. Persists only for the tab's
-// lifetime; window close clears it. Stale after TTL_MS.
-const CACHE_KEY = "cpa-key-policy:litellm-prices";
+const MODELS_DEV_URL = "https://models.dev/api.json";
+const CACHE_KEY = "cpa-keyer:models-dev-prices";
 const TTL_MS = 24 * 60 * 60 * 1000;
 const PRICE_DECIMAL_PLACES = 12;
+
+// Prefer first-party catalogs when models.dev contains the same model in
+// several gateways. cpa-keyer deliberately stores only the real model id, not
+// a provider route, so first-party list prices are the least surprising
+// reference value for an exact-id match.
+const FIRST_PARTY_PROVIDERS = new Set([
+  "anthropic",
+  "azure",
+  "azure-cognitive-services",
+  "google",
+  "google-vertex",
+  "groq",
+  "mistral",
+  "openai",
+  "xai",
+]);
 
 export interface PriceRow {
   input_price_per_million: number;
@@ -36,9 +28,10 @@ export interface PriceRow {
   cache_read_price_per_million: number;
 }
 
-// Lowercased model name → per-million price row. null entries mark models that
-// exist in the catalog but carry no usable price info (so callers can
-// distinguish "no such model" from "found, but no price" if needed).
+interface RankedPriceRow extends PriceRow {
+  sourceRank: number;
+}
+
 export type PriceTable = Map<string, PriceRow>;
 
 interface CacheEnvelope {
@@ -46,12 +39,24 @@ interface CacheEnvelope {
   table: [string, PriceRow][];
 }
 
-// Keep prices as numbers for the API while trimming binary floating-point
-// tails such as 0.19999999999999998 from calculations and legacy state.
+interface ModelsDevCost {
+  input?: unknown;
+  output?: unknown;
+  cache_read?: unknown;
+}
+
+interface ModelsDevModel {
+  id?: unknown;
+  cost?: ModelsDevCost;
+}
+
+interface ModelsDevProvider {
+  id?: unknown;
+  models?: Record<string, ModelsDevModel>;
+}
+
 export function normalizePrice(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    return 0;
-  }
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return 0;
   return Number(value.toFixed(PRICE_DECIMAL_PLACES));
 }
 
@@ -63,64 +68,57 @@ function normalizePriceRow(row: PriceRow): PriceRow {
   };
 }
 
-// Per-token USD → per-million-token USD. Litellm stores costs as USD per single
-// token; the form is USD per million tokens.
-function perMillion(perToken: unknown): number {
-  if (typeof perToken !== "number" || !Number.isFinite(perToken) || perToken < 0) {
-    return 0;
+function hasPrice(cost: ModelsDevCost | undefined): cost is ModelsDevCost {
+  if (!cost || typeof cost !== "object") return false;
+  return [cost.input, cost.output, cost.cache_read].some(
+    (value) => typeof value === "number" && Number.isFinite(value) && value >= 0,
+  );
+}
+
+export function parseModelsDev(raw: Record<string, unknown>): PriceTable {
+  const ranked = new Map<string, RankedPriceRow>();
+
+  for (const [providerKey, providerValue] of Object.entries(raw)) {
+    if (!providerValue || typeof providerValue !== "object") continue;
+    const provider = providerValue as ModelsDevProvider;
+    if (!provider.models || typeof provider.models !== "object") continue;
+
+    const providerID = typeof provider.id === "string" ? provider.id : providerKey;
+    const sourceRank = FIRST_PARTY_PROVIDERS.has(providerID.toLowerCase()) ? 2 : 1;
+
+    for (const [modelKey, modelValue] of Object.entries(provider.models)) {
+      if (!modelValue || typeof modelValue !== "object") continue;
+      const modelID = typeof modelValue.id === "string" ? modelValue.id.trim() : modelKey.trim();
+      if (!modelID || !hasPrice(modelValue.cost)) continue;
+
+      const key = modelID.toLowerCase();
+      const current = ranked.get(key);
+      if (current && current.sourceRank >= sourceRank) continue;
+
+      ranked.set(key, {
+        input_price_per_million: normalizePrice(modelValue.cost.input),
+        output_price_per_million: normalizePrice(modelValue.cost.output),
+        cache_read_price_per_million: normalizePrice(modelValue.cost.cache_read),
+        sourceRank,
+      });
+    }
   }
-  return normalizePrice(perToken * 1_000_000);
-}
 
-function num(v: unknown): number {
-  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : 0;
-}
-
-interface LiteLLMEntry {
-  input_cost_per_token?: unknown;
-  output_cost_per_token?: unknown;
-  cache_read_input_token_cost?: unknown;
-  mode?: unknown;
-}
-
-// Parse the raw LiteLLM JSON into a price table. Skips non-objects and the
-// `sample_spec` schema-template entry. Lowercases keys for case-insensitive
-// matching. Any entry that has at least an input or output cost yields a row;
-// missing components default to 0.
-export function parseLiteLLM(raw: Record<string, unknown>): PriceTable {
-  const table: PriceTable = new Map();
-  for (const [key, value] of Object.entries(raw)) {
-    if (key === "sample_spec") continue;
-    if (!value || typeof value !== "object") continue;
-    const e = value as LiteLLMEntry;
-    const input = num(e.input_cost_per_token);
-    const output = num(e.output_cost_per_token);
-    const cacheRead = num(e.cache_read_input_token_cost);
-    // An entry with no price fields at all carries no recommendation signal.
-    if (input === 0 && output === 0 && cacheRead === 0) continue;
-    table.set(key.toLowerCase(), {
-      input_price_per_million: perMillion(e.input_cost_per_token),
-      output_price_per_million: perMillion(e.output_cost_per_token),
-      cache_read_price_per_million: perMillion(e.cache_read_input_token_cost),
-    });
-  }
-  return table;
+  return new Map(
+    Array.from(ranked, ([model, row]) => [model, normalizePriceRow(row)]),
+  );
 }
 
 function readCache(): PriceTable | null {
   try {
     const raw = sessionStorage.getItem(CACHE_KEY);
     if (!raw) return null;
-    const env = JSON.parse(raw) as CacheEnvelope;
-    if (
-      !env ||
-      typeof env.fetchedAt !== "number" ||
-      !Array.isArray(env.table)
-    ) {
+    const envelope = JSON.parse(raw) as CacheEnvelope;
+    if (!envelope || typeof envelope.fetchedAt !== "number" || !Array.isArray(envelope.table)) {
       return null;
     }
-    if (Date.now() - env.fetchedAt > TTL_MS) return null;
-    return new Map(env.table.map(([model, row]) => [model, normalizePriceRow(row)]));
+    if (Date.now() - envelope.fetchedAt > TTL_MS) return null;
+    return new Map(envelope.table.map(([model, row]) => [model, normalizePriceRow(row)]));
   } catch {
     return null;
   }
@@ -128,54 +126,62 @@ function readCache(): PriceTable | null {
 
 function writeCache(table: PriceTable): void {
   try {
-    const env: CacheEnvelope = { fetchedAt: Date.now(), table: Array.from(table.entries()) };
-    sessionStorage.setItem(CACHE_KEY, JSON.stringify(env));
+    const envelope: CacheEnvelope = {
+      fetchedAt: Date.now(),
+      table: Array.from(table.entries()),
+    };
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify(envelope));
   } catch {
-    /* sessionStorage may be unavailable (private mode); degrade silently */
+    // The in-memory result is still usable when sessionStorage is unavailable.
   }
 }
 
-// In-memory memo so multiple KeyForm mounts in one tab share a single fetch
-// without re-reading sessionStorage on every call.
-let inflight: Promise<PriceTable | null> | null = null;
+let inflight: Promise<PriceTable> | null = null;
+
+async function fetchPriceTable(): Promise<PriceTable> {
+  if (inflight) return inflight;
+  inflight = (async () => {
+    const response = await fetch(MODELS_DEV_URL, { cache: "no-store" });
+    if (!response.ok) throw new Error(`models.dev request failed (${response.status})`);
+    const json = (await response.json()) as Record<string, unknown>;
+    if (!json || typeof json !== "object") throw new Error("models.dev returned invalid JSON");
+    const table = parseModelsDev(json);
+    if (table.size === 0) throw new Error("models.dev returned no model prices");
+    writeCache(table);
+    return table;
+  })();
+  try {
+    return await inflight;
+  } finally {
+    inflight = null;
+  }
+}
 
 export async function getPriceTable(): Promise<PriceTable | null> {
   const cached = readCache();
   if (cached) return cached;
-  if (inflight) return inflight;
-
-  inflight = (async () => {
-    try {
-      const res = await fetch(LITELLM_URL, { cache: "no-store" });
-      if (!res.ok) return null;
-      const json = (await res.json()) as Record<string, unknown>;
-      if (!json || typeof json !== "object") return null;
-      const table = parseLiteLLM(json);
-      writeCache(table);
-      return table;
-    } catch {
-      return null;
-    } finally {
-      inflight = null;
-    }
-  })();
-  return inflight;
+  try {
+    return await fetchPriceTable();
+  } catch {
+    return null;
+  }
 }
 
-// Look up a model in a table. Case-insensitive (the table keys are already
-// lowercased). Returns null when no entry exists → caller shows no recommend.
+export async function refreshPriceTable(): Promise<PriceTable> {
+  return fetchPriceTable();
+}
+
 export function lookupPrice(table: PriceTable | null, model: string): PriceRow | null {
   if (!table || !model) return null;
   const row = table.get(model.toLowerCase());
   return row ? normalizePriceRow(row) : null;
 }
 
-// Exposed for tests to reset cache state between cases.
 export function _resetPriceCache(): void {
   try {
     sessionStorage.removeItem(CACHE_KEY);
   } catch {
-    /* ignore */
+    // Test helper and private-mode cleanup only.
   }
   inflight = null;
 }

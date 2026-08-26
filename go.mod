@@ -1,4 +1,4 @@
-module cpa-key-policy
+module github.com/JaxsonWang/cpa-plugin-keyer
 
 go 1.23
 

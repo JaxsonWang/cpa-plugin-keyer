@@ -31,9 +31,8 @@ export function apiClient(): AxiosInstance {
   return instance;
 }
 
-const PLUGIN_BASE = "/v0/management/plugins/cpa-key-policy";
+const PLUGIN_BASE = "/v0/management/plugins/cpa-keyer";
 
 export function pluginPath(suffix: string): string {
   return PLUGIN_BASE + suffix;
 }
-

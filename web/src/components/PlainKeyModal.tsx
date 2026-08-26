@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useT } from "../i18n";
 
 interface Props {
@@ -9,9 +10,11 @@ interface Props {
 // Shows a freshly-issued/rotated plain key once. After closing it can never be retrieved again.
 export default function PlainKeyModal({ plainKey, title, onClose }: Props) {
   const t = useT();
+  const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(plainKey);
+      setCopied(true);
     } catch {
       /* clipboard may be blocked; user can select manually */
     }
@@ -25,7 +28,7 @@ export default function PlainKeyModal({ plainKey, title, onClose }: Props) {
         </div>
         <div className="keybox">{plainKey}</div>
         <div className="actions">
-          <button className="btn primary" onClick={copy}>{t("plainModal.copy")}</button>
+          <button className="btn primary" onClick={copy}>{copied ? t("plainModal.copied") : t("plainModal.copy")}</button>
           <button className="btn" onClick={onClose}>{t("plainModal.saved")}</button>
         </div>
       </div>

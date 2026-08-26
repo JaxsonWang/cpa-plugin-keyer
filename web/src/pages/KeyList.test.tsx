@@ -132,7 +132,6 @@ describe("KeyList", () => {
   });
 
   it("resets daily and weekly usage for all keys from the list header", async () => {
-    const confirmMock = vi.spyOn(globalThis, "confirm").mockReturnValue(true);
     vi.mocked(resetAllUsage).mockResolvedValue();
     await renderList([key("team-a"), key("team-b")]);
 
@@ -143,9 +142,15 @@ describe("KeyList", () => {
       await tick();
     });
 
-    expect(confirmMock).toHaveBeenCalledWith(
-      "确认将所有 Key 的每日和每周已用额度归零？此操作不可撤销。",
-    );
+    const dialog = container.querySelector<HTMLElement>('[role="alertdialog"]')!;
+    expect(dialog.textContent).toContain("确认将所有 Key 的每日和每周已用额度归零？此操作不可撤销。");
+    const confirmButton = Array.from(dialog.querySelectorAll("button"))
+      .find((button) => button.textContent === "重置额度")!;
+    await act(async () => {
+      confirmButton.click();
+      await tick();
+    });
+
     expect(resetAllUsage).toHaveBeenCalledTimes(1);
     expect(listKeys).toHaveBeenCalledTimes(2);
   });

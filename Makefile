@@ -1,5 +1,5 @@
-PLUGIN := cpa-key-policy
-PKG := ./cmd/cpa-key-policy
+PLUGIN := cpa-keyer
+PKG := ./cmd/cpa-keyer
 DIST := dist
 WEB := web
 EMBED_INDEX := internal/plugin/web/dist/index.html
