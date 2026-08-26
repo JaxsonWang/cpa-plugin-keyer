@@ -23,6 +23,7 @@ func newHistoryStore(t *testing.T, path string, now *time.Time, preview string) 
 			Models: []ModelRule{{
 				Model: "gpt-5.4", BillingMode: "tokens",
 				InputPricePerMillion: 2, OutputPricePerMillion: 8,
+				CacheReadPricePerMillion: 0.2,
 			}},
 		}},
 	}); err != nil {
@@ -87,6 +88,9 @@ func TestStateDatabaseCreatesSchemaAndIndexes(t *testing.T) {
 	for _, index := range []string{
 		"usage_events_timestamp_idx", "usage_events_key_time_idx",
 		"usage_events_model_time_idx", "usage_events_provider_time_idx",
+		"usage_events_executor_time_idx", "usage_events_auth_type_time_idx",
+		"usage_events_source_time_idx", "usage_events_service_tier_time_idx",
+		"usage_events_status_time_idx",
 	} {
 		var count int
 		if err := database.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?`, index).Scan(&count); err != nil {
@@ -95,6 +99,130 @@ func TestStateDatabaseCreatesSchemaAndIndexes(t *testing.T) {
 		if count != 1 {
 			t.Fatalf("index %q count = %d", index, count)
 		}
+	}
+}
+
+func TestUsageHistoryPersistsRuntimeDetailsRequestedTimeAndCostComponents(t *testing.T) {
+	now := time.Date(2026, 8, 26, 10, 0, 0, 0, time.UTC)
+	path := filepath.Join(t.TempDir(), "state.db")
+	store := newHistoryStore(t, path, &now, PreviewKey("cpa_history_secret"))
+	requestedAt := now.Add(-37 * time.Second)
+	generate := true
+	cost := store.RecordUsage("team-a", "gpt-5.4", "gpt-5.4-2026", false, UsageDetail{
+		Provider: "codex", ExecutorType: "codex", AuthType: "apikey", AuthIndex: "3",
+		Source: "openai-responses", ReasoningEffort: "high", ServiceTier: "priority",
+		Generate: &generate, RequestedAt: requestedAt, Latency: 2400 * time.Millisecond,
+		TTFT: 425 * time.Millisecond, FailureStatusCode: 200,
+		InputTokens: 1_000, OutputTokens: 200, CachedTokens: 250,
+		CacheReadTokens: 250, CacheCreationTokens: 10, TotalTokens: 1_200,
+	})
+	if !nearly(cost, 0.00315) {
+		t.Fatalf("cost = %v, want 0.00315", cost)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err := openStateDatabase(path, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.close()
+	events, err := database.allUsageEvents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events = %+v", events)
+	}
+	event := events[0]
+	if !event.Timestamp.Equal(requestedAt) || event.ExecutorType != "codex" ||
+		event.AuthType != "apikey" || event.AuthIndex != "3" || event.Source != "openai-responses" ||
+		event.ReasoningEffort != "high" || event.ServiceTier != "priority" || !event.Generate ||
+		event.LatencyMS != 2_400 || event.TTFTMS == nil || *event.TTFTMS != 425 || event.StatusCode != 200 {
+		t.Fatalf("persisted runtime details = %+v", event)
+	}
+	componentTotal := event.UncachedInputCostUSD + event.CacheReadCostUSD +
+		event.CacheCreationCostUSD + event.OutputCostUSD + event.OtherCostUSD
+	if !nearly(event.UncachedInputCostUSD, 0.0015) || !nearly(event.CacheReadCostUSD, 0.00005) ||
+		event.CacheCreationCostUSD != 0 || !nearly(event.OutputCostUSD, 0.0016) ||
+		!nearly(componentTotal, event.CostUSD) {
+		t.Fatalf("persisted cost components = %+v, sum=%v", event, componentTotal)
+	}
+}
+
+func TestUsageHistoryPerformanceHeatmapDimensionsAndRuntimeFilters(t *testing.T) {
+	now := time.Date(2026, 8, 26, 10, 0, 0, 0, time.UTC)
+	database, err := openStateDatabase(filepath.Join(t.TempDir(), "state.db"), func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.close()
+
+	latencies := []int64{100, 200, 300, 400, 1_000}
+	ttfts := []int64{50, 100, 150, 200, 500}
+	for index := range latencies {
+		ttft := ttfts[index]
+		if err := database.record(UsageEvent{
+			Timestamp: now.Add(time.Duration(index) * time.Second), KeyID: "team-a",
+			Provider: "openai", Model: "gpt-5.4", ExecutorType: "codex",
+			AuthType: "apikey", Source: "openai-responses", ServiceTier: "priority",
+			Generate: true, LatencyMS: latencies[index], TTFTMS: &ttft, StatusCode: 200,
+			InputTokens: 100, OutputTokens: 20, TotalTokens: 120,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ttft := int64(900)
+	for _, event := range []UsageEvent{
+		{Timestamp: now.Add(10 * time.Second), KeyID: "team-b", Provider: "anthropic", Model: "claude",
+			ExecutorType: "claude", AuthType: "oauth", Source: "anthropic-messages", ServiceTier: "standard",
+			Generate: true, Failed: true, LatencyMS: 2_000, TTFTMS: &ttft, StatusCode: 500},
+		{Timestamp: now.Add(11 * time.Second), KeyID: "team-b", Provider: "anthropic", Model: "claude",
+			ExecutorType: "claude", AuthType: "oauth", Source: "anthropic-messages", ServiceTier: "standard",
+			Generate: false, LatencyMS: 3_000, TTFTMS: &ttft, StatusCode: 204},
+		{Timestamp: now.Add(12 * time.Second), KeyID: "team-b", Provider: "anthropic", Model: "claude",
+			ExecutorType: "claude", AuthType: "oauth", Source: "anthropic-messages", ServiceTier: "standard",
+			Generate: true, LatencyMS: 0, StatusCode: 200},
+	} {
+		if err := database.record(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	filter := UsageHistoryFilter{Since: now.Add(-time.Minute), Until: now.Add(time.Minute)}
+	overview, err := database.overview(filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	performance := overview.Performance
+	if performance.LatencySamples != 5 || performance.AverageLatencyMS != 400 ||
+		performance.P50LatencyMS != 300 || performance.P95LatencyMS != 1_000 || performance.MaxLatencyMS != 1_000 ||
+		performance.TTFTSamples != 5 || performance.AverageTTFTMS != 200 ||
+		performance.P50TTFTMS != 150 || performance.P95TTFTMS != 500 || performance.MaxTTFTMS != 500 {
+		t.Fatalf("performance = %+v", performance)
+	}
+	analysis, err := database.analysis(filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(analysis.Heatmap) != 2 || analysis.Heatmap[0].KeyID != "team-a" || len(analysis.LatencyPoints) != 5 {
+		t.Fatalf("analysis heatmap/latency = heatmap=%+v latency=%+v", analysis.Heatmap, analysis.LatencyPoints)
+	}
+	if len(analysis.ByExecutor) != 2 || analysis.ByExecutor[0].Name != "codex" ||
+		len(analysis.ByAuthType) != 2 || len(analysis.BySource) != 2 || len(analysis.ByServiceTier) != 2 {
+		t.Fatalf("runtime dimensions = %+v %+v %+v %+v", analysis.ByExecutor, analysis.ByAuthType, analysis.BySource, analysis.ByServiceTier)
+	}
+	status := 500
+	page, err := database.eventPage(UsageHistoryFilter{
+		Since: now.Add(-time.Minute), Until: now.Add(time.Minute), ExecutorType: "CLAUDE",
+		AuthType: "OAUTH", Source: "ANTHROPIC-MESSAGES", ServiceTier: "STANDARD", StatusCode: &status,
+	}, 1, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 1 || len(page.Events) != 1 || !page.Events[0].Failed || page.Events[0].StatusCode != 500 {
+		t.Fatalf("runtime filtered events = %+v", page)
 	}
 }
 

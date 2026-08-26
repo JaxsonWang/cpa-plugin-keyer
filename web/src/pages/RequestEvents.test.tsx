@@ -32,12 +32,21 @@ describe("RequestEvents", () => {
       events: [{
         id: 7, timestamp: "2026-08-26T10:00:00Z", key_id: "team-a", key_preview: "cpa_*****wxyz", provider: "codex",
         model: "gpt-5.4", upstream_model: "gpt-5.4-2026-08-01", failed: false,
+        reasoning_effort: "xhigh",
+        executor_type: "codex", auth_type: "apikey", auth_index: "2", source: "openai-responses",
+        service_tier: "priority", generate: true, latency_ms: 2_400, ttft_ms: 400, status_code: 200,
         billing_mode: "tokens", cost_available: true, cost_usd: 0.002,
+        uncached_input_cost_usd: 0.0005, cache_read_cost_usd: 0.0002,
+        cache_creation_cost_usd: 0.0001, output_cost_usd: 0.0012, other_cost_usd: 0,
         input_tokens: 1000, output_tokens: 200, reasoning_tokens: 50,
         cache_read_tokens: 500, cache_creation_tokens: 10, total_tokens: 1200,
       }],
       total: 1, page: 1, page_size: 50, total_pages: 1,
-      filters: { key_ids: ["team-a"], providers: ["codex"], models: ["gpt-5.4"] },
+      filters: {
+        key_ids: ["team-a"], providers: ["codex"], models: ["gpt-5.4"],
+        executor_types: ["codex"], auth_types: ["apikey"], sources: ["openai-responses"],
+        service_tiers: ["priority"], status_codes: [200],
+      },
     });
     await act(async () => {
       root = createRoot(container);
@@ -52,12 +61,21 @@ describe("RequestEvents", () => {
     const headers = Array.from(container.querySelectorAll("th")).map((cell) => cell.textContent);
     expect(headers).toContain("Key ID");
     expect(headers).toContain("来源");
+    expect(headers).toContain("推理强度");
+    expect(headers).toContain("执行与认证");
+    expect(headers).toContain("性能");
     expect(container.querySelector(".page-heading-title .heading-count-tag")?.textContent).toBe("共 1 条请求事件");
     expect(container.querySelector(".events-log-heading")).toBeNull();
     expect(container.querySelector(".events-mobile-list .event-mobile-card")?.textContent).toContain("cpa_*****wxyz");
     expect(container.querySelector(".events-mobile-list .event-mobile-card")?.textContent).toContain("codex");
     const firstRow = Array.from(container.querySelectorAll("tbody tr:first-child td"));
-    expect(firstRow[headers.indexOf("缓存写入")]?.textContent?.trim()).toBe("10");
+    expect(firstRow[headers.indexOf("推理强度")]?.textContent?.trim()).toBe("xhigh");
+    expect(firstRow[headers.indexOf("执行与认证")]?.textContent).toContain("codex");
+    expect(firstRow[headers.indexOf("执行与认证")]?.textContent).toContain("apikey · 2");
+    expect(firstRow[headers.indexOf("结果")]?.textContent).toContain("HTTP 200");
+    expect(firstRow[headers.indexOf("性能")]?.textContent).toContain("2.40 s");
+    expect(firstRow[headers.indexOf("性能")]?.textContent).toContain("400 ms");
+    expect(firstRow[headers.indexOf("缓存")]?.textContent).toContain("50.0%");
     expect(firstRow[headers.indexOf("费用")]?.textContent?.trim()).toBe("$0.0");
   });
 
@@ -65,17 +83,23 @@ describe("RequestEvents", () => {
     vi.mocked(fetchUsageEvents).mockResolvedValue({
       events: [{
         id: 8, timestamp: "2026-08-26T10:01:00Z", key_id: "team-a", key_preview: "cpa_*****wxyz", provider: "codex",
-        model: "gpt-5.4", failed: false, billing_mode: "tokens", cost_available: true, cost_usd: 0,
+        model: "gpt-5.4", failed: false, generate: true, latency_ms: 0,
+        billing_mode: "tokens", cost_available: true, cost_usd: 0,
+        uncached_input_cost_usd: 0, cache_read_cost_usd: 0, cache_creation_cost_usd: 0,
+        output_cost_usd: 0, other_cost_usd: 0,
         input_tokens: 1000, output_tokens: 200, total_tokens: 1200,
       }],
       total: 1, page: 1, page_size: 50, total_pages: 1,
-      filters: { key_ids: ["team-a"], providers: ["codex"], models: ["gpt-5.4"] },
+      filters: {
+        key_ids: ["team-a"], providers: ["codex"], models: ["gpt-5.4"],
+        executor_types: [], auth_types: [], sources: [], service_tiers: [], status_codes: [],
+      },
     });
     await act(async () => {
       root = createRoot(container);
       root.render(<RequestEvents />);
       await tick();
     });
-    expect(container.querySelector("td[title='当前 CPA 未提供独立缓存写入统计']")?.textContent?.trim()).toBe("—");
+    expect(container.querySelector("td[title='当前 CPA 未提供独立缓存写入统计']")?.textContent).toContain("W —");
   });
 });

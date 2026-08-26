@@ -3,6 +3,7 @@ package policy
 import (
 	"encoding/json"
 	"strings"
+	"time"
 )
 
 // TokenUsage is the prompt/completion token counts extracted from a response body.
@@ -37,6 +38,17 @@ func isCacheAdditiveProvider(provider string) bool {
 // a stream). Only the fields we bill on are tracked here.
 type UsageDetail struct {
 	Provider            string
+	ExecutorType        string
+	AuthType            string
+	AuthIndex           string
+	Source              string
+	ReasoningEffort     string
+	ServiceTier         string
+	Generate            *bool
+	RequestedAt         time.Time
+	Latency             time.Duration
+	TTFT                time.Duration
+	FailureStatusCode   int
 	InputTokens         int64
 	OutputTokens        int64
 	ReasoningTokens     int64
@@ -280,13 +292,34 @@ func ComputeCacheCost(provider string, inputPerMillion, outputPerMillion, cacheR
 //     (because they were folded into the input-price line, not separably priced).
 //   - cacheReadTokens: the cache-hit count billed at the cache price (post-clamp).
 func ComputeCacheCostBreakdown(provider string, inputPerMillion, outputPerMillion, cacheReadPerMillion float64, priced bool, detail UsageDetail) (totalCost, cacheCost float64, cacheReadTokens int64) {
+	breakdown := ComputeUsageCostBreakdown(provider, inputPerMillion, outputPerMillion, cacheReadPerMillion, priced, detail)
+	return breakdown.TotalUSD, breakdown.CacheReadUSD, breakdown.CacheReadTokens
+}
+
+// UsageCostBreakdown preserves the exact billing total while retaining the
+// component amounts required by the dashboard. Cache creation currently uses
+// the configured input price because Keyer has no separate cache-write price.
+type UsageCostBreakdown struct {
+	TotalUSD            float64
+	UncachedInputUSD    float64
+	CacheReadUSD        float64
+	CacheCreationUSD    float64
+	OutputUSD           float64
+	CacheReadTokens     int64
+	NonCacheInputTokens int64
+}
+
+// ComputeUsageCostBreakdown is the single cache-aware pricing implementation.
+// When no explicit cache-read price exists, cache-hit spend remains folded into
+// the input component so the visible components always add up to TotalUSD.
+func ComputeUsageCostBreakdown(provider string, inputPerMillion, outputPerMillion, cacheReadPerMillion float64, priced bool, detail UsageDetail) UsageCostBreakdown {
 	if !priced {
-		return 0, 0, 0
+		return UsageCostBreakdown{}
 	}
 	input := detail.InputTokens
 	output := detail.OutputTokens
 	if input == 0 && output == 0 {
-		return 0, 0, 0
+		return UsageCostBreakdown{}
 	}
 	cacheRead := detail.CacheReadTokens
 	if cacheRead == 0 {
@@ -295,40 +328,36 @@ func ComputeCacheCostBreakdown(provider string, inputPerMillion, outputPerMillio
 		// CacheReadTokens. Either way CachedTokens is the cache-hit count.
 		cacheRead = detail.CachedTokens
 	}
+	explicitCachePrice := cacheReadPerMillion != 0
 	cachePrice := cacheReadPerMillion
-	if cachePrice == 0 {
-		// No cache price configured: bill everything at the regular input price.
-		// For subset providers input already includes cache hits, so this is
-		// correct as-is (no double count). For additive providers, cache reads
-		// are outside input, so we still add them at the input price to match the
-		// pre-cache-pricing total (Input + Output + CacheRead + CacheCreation).
+	if !explicitCachePrice {
 		cachePrice = inputPerMillion
 	}
 
-	var inputTokensToBill int64
+	breakdown := UsageCostBreakdown{CacheReadTokens: cacheRead}
 	if isCacheAdditiveProvider(provider) {
-		// Cache hits are NOT in input; bill input at input price, cache reads at
-		// the cache price, and cache-creation tokens (writes) at the input price.
-		inputTokensToBill = input + detail.CacheCreationTokens
-	} else {
-		// Cache hits ARE a subset of input; peel them off and reprice.
-		if cacheRead > input {
-			cacheRead = input // defensive: clamp to what's reported
+		breakdown.NonCacheInputTokens = input + detail.CacheCreationTokens
+		breakdown.CacheCreationUSD = float64(detail.CacheCreationTokens) / 1_000_000 * inputPerMillion
+		if explicitCachePrice {
+			breakdown.UncachedInputUSD = float64(input) / 1_000_000 * inputPerMillion
+			breakdown.CacheReadUSD = float64(cacheRead) / 1_000_000 * cachePrice
+		} else {
+			breakdown.UncachedInputUSD = float64(input+cacheRead) / 1_000_000 * inputPerMillion
 		}
-		inputTokensToBill = input - cacheRead
+	} else {
+		if cacheRead > input {
+			cacheRead = input
+			breakdown.CacheReadTokens = cacheRead
+		}
+		breakdown.NonCacheInputTokens = input - cacheRead
+		if explicitCachePrice {
+			breakdown.UncachedInputUSD = float64(input-cacheRead) / 1_000_000 * inputPerMillion
+			breakdown.CacheReadUSD = float64(cacheRead) / 1_000_000 * cachePrice
+		} else {
+			breakdown.UncachedInputUSD = float64(input) / 1_000_000 * inputPerMillion
+		}
 	}
-
-	cacheReadTokens = cacheRead
-	cost := float64(inputTokensToBill)/1_000_000*inputPerMillion +
-		float64(cacheRead)/1_000_000*cachePrice +
-		float64(output)/1_000_000*outputPerMillion
-	// cacheCost is the cache-hit line only. Report it as separably priced only
-	// when a cache price was explicitly configured (cacheReadPerMillion != 0);
-	// otherwise cache hits were folded into the input-price bill and reporting
-	// them as "cache spend" would overstate savings/mislead the dashboards.
-	var cachePortion float64
-	if cacheReadPerMillion != 0 && cacheRead > 0 {
-		cachePortion = float64(cacheRead) / 1_000_000 * cachePrice
-	}
-	return cost, cachePortion, cacheReadTokens
+	breakdown.OutputUSD = float64(output) / 1_000_000 * outputPerMillion
+	breakdown.TotalUSD = breakdown.UncachedInputUSD + breakdown.CacheReadUSD + breakdown.CacheCreationUSD + breakdown.OutputUSD
+	return breakdown
 }

@@ -103,6 +103,14 @@ func TestMigrateLegacyStateFileCreatesVerifiedSQLiteWithoutChangingSource(t *tes
 	if len(events) != 2 || events[0].ID != 5 || events[1].ID != 8 || events[0].KeyPreview != "cpa_*****cret" {
 		t.Fatalf("migrated events = %+v", events)
 	}
+	for _, event := range events {
+		if !event.Generate || event.LatencyMS != 0 || event.TTFTMS != nil ||
+			event.ExecutorType != "" || event.AuthType != "" || event.StatusCode != 0 ||
+			event.UncachedInputCostUSD != 0 || event.CacheReadCostUSD != 0 ||
+			event.CacheCreationCostUSD != 0 || event.OutputCostUSD != 0 || event.OtherCostUSD != 0 {
+			t.Fatalf("legacy event defaults = %+v", event)
+		}
+	}
 	if err := database.record(UsageEvent{KeyID: "team-a", Model: "gpt-5.4"}); err != nil {
 		t.Fatal(err)
 	}

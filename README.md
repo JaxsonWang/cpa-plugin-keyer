@@ -10,7 +10,7 @@ It issues plugin-owned `cpa_…` keys and enforces an exact model allow-list, RP
 | **License** | MIT |
 | **中文说明** | [README.zh-CN.md](./README.zh-CN.md) |
 
-## v0.7.2 usage analytics, CPA-integrated UI, and SQLite state
+## v0.7.3 usage analytics, CPA-integrated UI, and SQLite state
 
 The embedded UI now follows CPA's light, white, and dark management themes and
 uses a compact local section rail for Overview, Request events, Key management,
@@ -19,11 +19,14 @@ are removed. The Key list also supports resetting one or multiple keys' daily
 and weekly limits to zero.
 
 Overview combines request/token trends with model, Key ID, and provider
-breakdowns. Request events keep the Key ID and a masked source such as
-`cpa_*****wxyz`, never the plaintext credential, together with the timestamp,
-provider, requested/upstream model, result, billing mode, token detail, and
-estimated cost available from CPA's `usage.handle` payload. History is retained
-for 90 days without a fixed event-count cap.
+breakdowns, latency and TTFT percentiles, cache efficiency, cost composition,
+executor/auth/source/service-tier distributions, and a Key-by-model heatmap.
+Request events keep the Key ID and a masked source such as `cpa_*****wxyz`,
+never the plaintext credential, together with the timestamp, provider,
+requested/upstream model, reasoning effort, executor and authentication type,
+request source, service tier, HTTP failure status, latency, TTFT, token detail,
+billing mode, and estimated cost available from CPA's `usage.handle` payload.
+History is retained for 90 days without a fixed event-count cap.
 
 `state_file` is now one SQLite database containing Key configuration, model
 rules, daily/weekly aggregate state, and request events. JSON state files are

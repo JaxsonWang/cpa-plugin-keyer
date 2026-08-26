@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { averagePerMinute, cacheRate, costPerMillion, formatCount, formatRate, formatSummaryUSD, formatUSD } from "./usageFormat";
+import {
+  averagePerMinute,
+  cacheRate,
+  costPerMillion,
+  formatCount,
+  formatDuration,
+  formatRate,
+  formatSummaryUSD,
+  formatUSD,
+  tokensPerSecond,
+} from "./usageFormat";
 
 describe("usage formatting", () => {
   it("uses universal M units instead of locale-specific ten-thousand units", () => {
@@ -20,5 +30,14 @@ describe("usage formatting", () => {
     expect(formatUSD(429.32)).toBe("$429.3");
     expect(formatSummaryUSD(429.32)).toBe("$429.3");
     expect(formatSummaryUSD(0.004)).toBe("$0.0");
+  });
+
+  it("formats duration and derives generation throughput from post-TTFT time", () => {
+    expect(formatDuration(undefined)).toBe("—");
+    expect(formatDuration(0)).toBe("—");
+    expect(formatDuration(400)).toBe("400 ms");
+    expect(formatDuration(2_400)).toBe("2.40 s");
+    expect(tokensPerSecond(200, 2_400, 400)).toBe(100);
+    expect(tokensPerSecond(200, 400, 400)).toBeUndefined();
   });
 });

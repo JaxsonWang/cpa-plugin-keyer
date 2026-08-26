@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"time"
 )
 
 const (
@@ -33,7 +34,7 @@ const (
 const (
 	PluginID   = "cpa-keyer"
 	PluginName = "Keyer"
-	Version    = "0.7.2"
+	Version    = "0.7.3"
 )
 
 type Envelope struct {
@@ -141,9 +142,32 @@ type UsageHandleRequest struct {
 	// APIKey is the usage identity delivered by CPA. For plugin-authenticated
 	// requests current CPA sends the Keyer key ID; older/local callers may still
 	// provide the cpa_ credential, so Store accepts either but never persists it.
-	APIKey string      `json:"APIKey"`
-	Failed bool        `json:"Failed"`
-	Detail UsageDetail `json:"Detail"`
+	APIKey string `json:"APIKey"`
+	// ExecutorType identifies the concrete CPA executor that handled the request.
+	ExecutorType string `json:"ExecutorType"`
+	// AuthIndex and AuthType describe the selected upstream credential without
+	// persisting its secret or AuthID.
+	AuthIndex string `json:"AuthIndex"`
+	AuthType  string `json:"AuthType"`
+	// Source identifies the CPA integration that initiated the execution.
+	Source string `json:"Source"`
+	// ReasoningEffort is the requested reasoning level resolved by CPA.
+	ReasoningEffort string `json:"ReasoningEffort"`
+	// ServiceTier is the client-requested CPA service tier.
+	ServiceTier string `json:"ServiceTier"`
+	// Generate distinguishes actual generations from warm-up/control requests.
+	// Missing values retain CPA's historical generate=true behavior.
+	Generate    *bool         `json:"Generate"`
+	RequestedAt time.Time     `json:"RequestedAt"`
+	Latency     time.Duration `json:"Latency"`
+	TTFT        time.Duration `json:"TTFT"`
+	Failed      bool          `json:"Failed"`
+	Failure     UsageFailure  `json:"Failure"`
+	Detail      UsageDetail   `json:"Detail"`
+}
+
+type UsageFailure struct {
+	StatusCode int `json:"StatusCode"`
 }
 
 // UsageDetail mirrors CPA's usage token breakdown. Only the fields we bill on.

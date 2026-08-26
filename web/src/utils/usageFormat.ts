@@ -25,10 +25,20 @@ export function successRate(totals: Pick<UsageTotals, "request_count" | "success
 }
 
 export function cacheRate(totals: Pick<UsageTotals, "cache_read_tokens" | "cached_tokens" | "input_tokens">): string {
+  const value = cacheRateValue(totals);
+  return value === undefined ? "—" : formatPercent(value);
+}
+
+export function cacheRateValue(totals: Pick<UsageTotals, "cache_read_tokens" | "cached_tokens" | "input_tokens">): number | undefined {
   const cached = Math.max(totals.cache_read_tokens, totals.cached_tokens);
   const denominator = totals.input_tokens;
-  if (!denominator) return "—";
-  return `${(Math.min(1, cached / denominator) * 100).toFixed(1)}%`;
+  if (!denominator) return undefined;
+  return Math.min(1, cached / denominator);
+}
+
+export function formatPercent(value: number): string {
+  if (!Number.isFinite(value)) return "—";
+  return `${(value * 100).toFixed(1)}%`;
 }
 
 export function averagePerMinute(value: number, from: string, to: string): number {
@@ -45,4 +55,19 @@ export function formatRate(value: number): string {
 export function costPerMillion(costUSD: number, totalTokens: number): string {
   if (!totalTokens) return "—";
   return formatUSD((costUSD / totalTokens) * 1_000_000);
+}
+
+export function formatDuration(ms: number | undefined): string {
+  if (ms === undefined || !Number.isFinite(ms) || ms <= 0) return "—";
+  if (ms < 1) return "<1 ms";
+  if (ms < 1_000) return `${Math.round(ms)} ms`;
+  if (ms < 60_000) return `${(ms / 1_000).toFixed(ms < 10_000 ? 2 : 1)} s`;
+  return `${(ms / 60_000).toFixed(1)} min`;
+}
+
+export function tokensPerSecond(outputTokens: number, latencyMS: number, ttftMS?: number): number | undefined {
+  if (!Number.isFinite(outputTokens) || outputTokens <= 0 || !Number.isFinite(latencyMS) || latencyMS <= 0 || ttftMS === undefined || ttftMS <= 0 || latencyMS <= ttftMS) {
+    return undefined;
+  }
+  return outputTokens / ((latencyMS - ttftMS) / 1_000);
 }

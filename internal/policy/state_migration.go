@@ -185,6 +185,9 @@ func prepareLegacyState(state *State, now time.Time) (preparedLegacyState, error
 		}
 		seenIDs[sourceEvent.ID] = struct{}{}
 		event := normalizeUsageEvent(sourceEvent, now)
+		// Legacy JSON events predate the generate flag. CPA historically treats a
+		// missing value as generation enabled, so preserve that invariant here.
+		event.Generate = true
 		if event.Timestamp.Before(cutoff) {
 			continue
 		}
@@ -246,10 +249,13 @@ func (h *stateDatabase) importLegacyState(state preparedLegacyState) error {
 	statement, err := tx.Prepare(`
 		INSERT INTO usage_events (
 			id, timestamp_ns, key_id, key_preview, provider, model, upstream_model,
-			failed, billing_mode, cost_available, cost_usd, input_tokens,
-			output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens,
-			cache_creation_tokens, total_tokens
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+			reasoning_effort, executor_type, auth_type, auth_index, source,
+			service_tier, generate, latency_ms, ttft_ms, status_code, failed,
+			billing_mode, cost_available, cost_usd, uncached_input_cost_usd,
+			cache_read_cost_usd, cache_creation_cost_usd, output_cost_usd,
+			other_cost_usd, input_tokens, output_tokens, reasoning_tokens,
+			cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare request event migration: %w", err)
 	}

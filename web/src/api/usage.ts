@@ -11,6 +11,11 @@ export interface UsageQuery {
   key_id?: string;
   provider?: string;
   model?: string;
+  executor_type?: string;
+  auth_type?: string;
+  source?: string;
+  service_tier?: string;
+  status_code?: number;
   result?: "success" | "failed";
   page?: number;
   page_size?: number;

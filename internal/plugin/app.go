@@ -239,6 +239,17 @@ func (a *App) handleUsage(raw []byte) ([]byte, error) {
 	}
 	_ = a.store.RecordUsage(req.APIKey, req.Alias, req.Model, req.Failed, policy.UsageDetail{
 		Provider:            req.Provider,
+		ExecutorType:        req.ExecutorType,
+		AuthType:            req.AuthType,
+		AuthIndex:           req.AuthIndex,
+		Source:              req.Source,
+		ReasoningEffort:     req.ReasoningEffort,
+		ServiceTier:         req.ServiceTier,
+		Generate:            req.Generate,
+		RequestedAt:         req.RequestedAt,
+		Latency:             req.Latency,
+		TTFT:                req.TTFT,
+		FailureStatusCode:   req.Failure.StatusCode,
 		InputTokens:         req.Detail.InputTokens,
 		OutputTokens:        req.Detail.OutputTokens,
 		ReasoningTokens:     req.Detail.ReasoningTokens,
@@ -345,11 +356,18 @@ func usageFilterFromQuery(query url.Values) policy.UsageHistoryFilter {
 		duration = 90 * 24 * time.Hour
 	}
 	filter := policy.UsageHistoryFilter{
-		Since:    now.Add(-duration),
-		Until:    now,
-		KeyID:    strings.TrimSpace(query.Get("key_id")),
-		Provider: strings.TrimSpace(query.Get("provider")),
-		Model:    strings.TrimSpace(query.Get("model")),
+		Since:        now.Add(-duration),
+		Until:        now,
+		KeyID:        strings.TrimSpace(query.Get("key_id")),
+		Provider:     strings.TrimSpace(query.Get("provider")),
+		Model:        strings.TrimSpace(query.Get("model")),
+		ExecutorType: strings.TrimSpace(query.Get("executor_type")),
+		AuthType:     strings.TrimSpace(query.Get("auth_type")),
+		Source:       strings.TrimSpace(query.Get("source")),
+		ServiceTier:  strings.TrimSpace(query.Get("service_tier")),
+	}
+	if statusCode, err := strconv.Atoi(strings.TrimSpace(query.Get("status_code"))); err == nil && statusCode > 0 {
+		filter.StatusCode = &statusCode
 	}
 	switch strings.ToLower(strings.TrimSpace(query.Get("result"))) {
 	case "success":

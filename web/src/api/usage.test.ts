@@ -34,4 +34,31 @@ describe("usage reporting API", () => {
       { params: { range: "24h", result: "failed", page: 2, page_size: 50 } },
     );
   });
+
+  it("passes runtime event filters through to the event route", async () => {
+    clientMocks.get.mockResolvedValue({ data: {} });
+    await fetchUsageEvents({
+      range: "7d",
+      executor_type: "codex",
+      auth_type: "apikey",
+      source: "openai-responses",
+      service_tier: "priority",
+      status_code: 429,
+      page: 1,
+      page_size: 100,
+    });
+    expect(clientMocks.get).toHaveBeenCalledWith(
+      "/v0/management/plugins/cpa-keyer/usage/events",
+      { params: {
+        range: "7d",
+        executor_type: "codex",
+        auth_type: "apikey",
+        source: "openai-responses",
+        service_tier: "priority",
+        status_code: 429,
+        page: 1,
+        page_size: 100,
+      } },
+    );
+  });
 });

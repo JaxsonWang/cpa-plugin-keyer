@@ -198,7 +198,7 @@
     "range90d": "最近 90 天",
     "key": "Key ID",
     "allKeys": "全部 Key",
-    "provider": "来源",
+    "provider": "供应商",
     "allProviders": "全部来源",
     "model": "模型",
     "allModels": "全部模型",
@@ -230,7 +230,12 @@
       "reasoning": "推理",
       "cacheRead": "缓存读取",
       "cacheCreation": "缓存写入",
-      "summary": "核心用量指标"
+      "summary": "核心用量指标",
+      "latency": "总延迟",
+      "ttft": "首字延迟",
+      "latencyP95": "P95 总延迟",
+      "ttftP95": "P95 首字延迟",
+      "samples": "{{count}} 个样本"
     },
     "chart": {
       "activityTitle": "请求与 Token 趋势",
@@ -242,13 +247,36 @@
       "providerShare": "来源请求占比",
       "providerShareHint": "按实际上游来源统计请求分布。",
       "keyUsage": "Key 使用排行",
-      "keyUsageHint": "按 Token 消耗展示活跃 Key。"
+      "keyUsageHint": "按 Token 消耗展示活跃 Key。",
+      "latencyTrend": "延迟趋势",
+      "latencyTrendHint": "按时间对比平均总延迟与首字延迟。",
+      "latencyScatter": "延迟分布",
+      "latencyScatterHint": "对比单次请求的首字延迟与总延迟。",
+      "costBreakdown": "费用构成",
+      "costBreakdownHint": "拆分非缓存输入、缓存读写、输出和其他费用。",
+      "cacheTrend": "缓存效率趋势",
+      "cacheTrendHint": "同时查看缓存读写量与缓存读取率。",
+      "executorShare": "执行器排行",
+      "executorShareHint": "按请求量展示实际执行器分布。",
+      "heatmap": "Key × 模型热力图",
+      "heatmapHint": "查看各 Key 与模型组合的请求活跃度。",
+      "runtimeProfile": "运行画像",
+      "runtimeProfileHint": "汇总主要供应商、认证方式、来源与服务层级。",
+      "authShare": "认证类型分布",
+      "authShareHint": "按请求量展示认证方式分布。"
     },
     "analysis": {
       "byModel": "模型使用排行",
       "modelEfficiency": "模型效率",
       "modelEfficiencyHint": "按模型对比请求、成功率、Token 和每百万 Token 成本。",
-      "costPerMillion": "每 1M Token 成本"
+      "costPerMillion": "每 1M Token 成本",
+      "costPerRequest": "每请求费用",
+      "outputPerRequest": "每请求输出",
+      "uncachedInput": "非缓存输入",
+      "cacheReadCost": "缓存读取",
+      "cacheWriteCost": "缓存写入",
+      "outputCost": "输出",
+      "otherCost": "其他"
     },
     "events": {
       "time": "时间",
@@ -261,15 +289,29 @@
       "upstream": "实际模型",
       "source": "来源",
       "billing": "计费",
+      "reasoningEffort": "推理强度",
       "perCall": "按次",
       "byToken": "按 Token",
       "cacheRate": "缓存率",
-      "cacheCreationUnavailable": "当前 CPA 未提供独立缓存写入统计"
+      "cacheCreationUnavailable": "当前 CPA 未提供独立缓存写入统计",
+      "requestSource": "请求来源",
+      "allSources": "全部来源",
+      "executor": "执行与认证",
+      "allExecutors": "全部执行器",
+      "authType": "认证类型",
+      "allAuthTypes": "全部认证类型",
+      "serviceTier": "服务层级",
+      "allServiceTiers": "全部服务层级",
+      "statusCode": "HTTP 状态码",
+      "allStatusCodes": "全部状态码",
+      "performance": "性能",
+      "cache": "缓存"
     },
     "dashboard": {
       "activity": "用量分析",
       "activityHint": "趋势、构成与分布使用同一筛选范围实时汇总。"
-    }
+    },
+    "noLatencyData": "所选范围内暂无有效延迟样本"
   },
   "keyUsage": {
     "title": "Key 用量详情",

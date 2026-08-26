@@ -3,7 +3,7 @@ import { fetchUsageEvents } from "../api/usage";
 import UsageControls from "../components/UsageControls";
 import { useT } from "../i18n";
 import type { UsageEvent, UsageEventsResponse, UsageRange } from "../types";
-import { formatCount, formatUSD } from "../utils/usageFormat";
+import { formatCount, formatDuration, formatRate, formatUSD, tokensPerSecond } from "../utils/usageFormat";
 
 function messageOf(error: unknown, fallback: string): string {
   const typed = error as { response?: { data?: { error?: { message?: string } } }; message?: string };
@@ -15,7 +15,8 @@ function usageEventStats(event: UsageEvent) {
   const cacheRate = event.input_tokens
     ? `${(Math.min(1, cached / event.input_tokens) * 100).toFixed(1)}%`
     : "—";
-  return { cached, cacheRate };
+  const speedTPS = tokensPerSecond(event.output_tokens, event.latency_ms, event.ttft_ms);
+  return { cached, cacheRate, speedTPS };
 }
 
 export default function RequestEvents() {
@@ -25,6 +26,11 @@ export default function RequestEvents() {
   const [provider, setProvider] = useState("");
   const [model, setModel] = useState("");
   const [result, setResult] = useState<"" | "success" | "failed">("");
+  const [executorType, setExecutorType] = useState("");
+  const [authType, setAuthType] = useState("");
+  const [source, setSource] = useState("");
+  const [serviceTier, setServiceTier] = useState("");
+  const [statusCode, setStatusCode] = useState("");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<UsageEventsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -39,6 +45,11 @@ export default function RequestEvents() {
         key_id: keyID,
         provider,
         model,
+        executor_type: executorType,
+        auth_type: authType,
+        source,
+        service_tier: serviceTier,
+        status_code: statusCode ? Number(statusCode) : undefined,
         result: result || undefined,
         page,
         page_size: 50,
@@ -48,7 +59,7 @@ export default function RequestEvents() {
     } finally {
       setLoading(false);
     }
-  }, [keyID, model, page, provider, range, result, t]);
+  }, [authType, executorType, keyID, model, page, provider, range, result, serviceTier, source, statusCode, t]);
 
   useEffect(() => {
     void load();
@@ -104,6 +115,41 @@ export default function RequestEvents() {
             <option value="failed">{t("usage.failed")}</option>
           </select>
         </label>
+        {(data?.filters.sources.length ?? 0) > 0 && <label>
+          <span>{t("usage.events.requestSource")}</span>
+          <select aria-label={t("usage.events.requestSource")} value={source} disabled={loading} onChange={(event) => changeFilter(setSource, event.target.value)}>
+            <option value="">{t("usage.events.allSources")}</option>
+            {data?.filters.sources.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </label>}
+        {(data?.filters.executor_types.length ?? 0) > 0 && <label>
+          <span>{t("usage.events.executor")}</span>
+          <select aria-label={t("usage.events.executor")} value={executorType} disabled={loading} onChange={(event) => changeFilter(setExecutorType, event.target.value)}>
+            <option value="">{t("usage.events.allExecutors")}</option>
+            {data?.filters.executor_types.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </label>}
+        {(data?.filters.auth_types.length ?? 0) > 0 && <label>
+          <span>{t("usage.events.authType")}</span>
+          <select aria-label={t("usage.events.authType")} value={authType} disabled={loading} onChange={(event) => changeFilter(setAuthType, event.target.value)}>
+            <option value="">{t("usage.events.allAuthTypes")}</option>
+            {data?.filters.auth_types.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </label>}
+        {(data?.filters.service_tiers.length ?? 0) > 0 && <label>
+          <span>{t("usage.events.serviceTier")}</span>
+          <select aria-label={t("usage.events.serviceTier")} value={serviceTier} disabled={loading} onChange={(event) => changeFilter(setServiceTier, event.target.value)}>
+            <option value="">{t("usage.events.allServiceTiers")}</option>
+            {data?.filters.service_tiers.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </label>}
+        {(data?.filters.status_codes.length ?? 0) > 0 && <label>
+          <span>{t("usage.events.statusCode")}</span>
+          <select aria-label={t("usage.events.statusCode")} value={statusCode} disabled={loading} onChange={(event) => changeFilter(setStatusCode, event.target.value)}>
+            <option value="">{t("usage.events.allStatusCodes")}</option>
+            {data?.filters.status_codes.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </label>}
       </UsageControls>
 
       {error && <div className="error">{error}</div>}
@@ -117,21 +163,22 @@ export default function RequestEvents() {
                   <th>{t("usage.events.keyID")}</th>
                   <th>{t("usage.events.source")}</th>
                   <th>{t("usage.events.model")}</th>
+                  <th>{t("usage.events.executor")}</th>
                   <th>{t("usage.events.result")}</th>
+                  <th>{t("usage.events.performance")}</th>
                   <th>{t("usage.events.billing")}</th>
                   <th className="num">{t("usage.stats.input")}</th>
                   <th className="num">{t("usage.stats.output")}</th>
-                  <th className="num">{t("usage.stats.reasoning")}</th>
+                  <th className="event-reasoning-effort">{t("usage.events.reasoningEffort")}</th>
                   <th className="num">{t("usage.stats.cacheRead")}</th>
-                  <th className="num">{t("usage.stats.cacheCreation")}</th>
-                  <th className="num">{t("usage.events.cacheRate")}</th>
+                  <th className="num">{t("usage.events.cache")}</th>
                   <th className="num">{t("usage.events.tokens")}</th>
                   <th className="num">{t("usage.events.cost")}</th>
                 </tr>
               </thead>
               <tbody>
                 {data.events.map((event) => {
-                  const { cached, cacheRate } = usageEventStats(event);
+                  const { cached, cacheRate, speedTPS } = usageEventStats(event);
                   return (
                     <tr key={event.id}>
                       <td className="event-time"><strong>{new Date(event.timestamp).toLocaleString()}</strong><small>#{event.id}</small></td>
@@ -139,33 +186,48 @@ export default function RequestEvents() {
                       <td className="event-source">
                         <code>{event.key_preview || "—"}</code>
                         <small>{event.provider || "—"}</small>
+                        {event.source && <small>{event.source}</small>}
                       </td>
                       <td className="event-model">
                         <strong>{event.model}</strong>
                         {event.upstream_model && event.upstream_model !== event.model && <small>{t("usage.events.upstream")}: {event.upstream_model}</small>}
                       </td>
-                      <td><span className={`event-result ${event.failed ? "failed" : "success"}`}><i />{event.failed ? t("usage.failed") : t("usage.success")}</span></td>
-                      <td><span className="billing-badge">{event.billing_mode === "per_call" ? t("usage.events.perCall") : t("usage.events.byToken")}</span></td>
+                      <td className="event-execution">
+                        <strong>{event.executor_type || "—"}</strong>
+                        <small>{[event.auth_type, event.auth_index].filter(Boolean).join(" · ") || "—"}</small>
+                      </td>
+                      <td className="event-result-cell">
+                        <span className={`event-result ${event.failed ? "failed" : "success"}`}><i />{event.failed ? t("usage.failed") : t("usage.success")}</span>
+                        {event.status_code ? <small>HTTP {event.status_code}</small> : null}
+                      </td>
+                      <td className="event-performance">
+                        <strong>{formatDuration(event.latency_ms)}</strong>
+                        <small>TTFT {formatDuration(event.ttft_ms)} · {speedTPS === undefined ? "—" : `${formatRate(speedTPS)} TPS`}</small>
+                      </td>
+                      <td className="event-billing"><span className="billing-badge">{event.billing_mode === "per_call" ? t("usage.events.perCall") : t("usage.events.byToken")}</span><small>{event.service_tier || "—"}</small></td>
                       <td className="num mono">{formatCount(event.input_tokens)}</td>
                       <td className="num mono">{formatCount(event.output_tokens)}</td>
-                      <td className="num mono">{formatCount(event.reasoning_tokens ?? 0)}</td>
+                      <td className="event-reasoning-effort">{event.reasoning_effort || "—"}</td>
                       <td className="num mono">{formatCount(cached)}</td>
-                      <td className="num mono" title={event.cache_creation_tokens ? undefined : t("usage.events.cacheCreationUnavailable")}>
-                        {event.cache_creation_tokens ? formatCount(event.cache_creation_tokens) : "—"}
+                      <td
+                        className="num mono event-cache"
+                        title={event.cache_creation_tokens ? undefined : t("usage.events.cacheCreationUnavailable")}
+                      >
+                        <strong>{cacheRate}</strong>
+                        <small>R {formatCount(cached)} · W {event.cache_creation_tokens ? formatCount(event.cache_creation_tokens) : "—"}</small>
                       </td>
-                      <td className="num mono">{cacheRate}</td>
                       <td className="num mono event-total-token">{formatCount(event.total_tokens)}</td>
                       <td className="num mono">{event.cost_available ? formatUSD(event.cost_usd) : "—"}</td>
                     </tr>
                   );
                 })}
-                {data.events.length === 0 && <tr><td colSpan={14} className="events-empty muted">{t("usage.noData")}</td></tr>}
+                {data.events.length === 0 && <tr><td colSpan={15} className="events-empty muted">{t("usage.noData")}</td></tr>}
               </tbody>
             </table>
           </div>
           <div className="events-mobile-list mobile-only">
             {data.events.map((event) => {
-              const { cached, cacheRate } = usageEventStats(event);
+              const { cached, cacheRate, speedTPS } = usageEventStats(event);
               return (
                 <article className="event-mobile-card" key={event.id}>
                   <header>
@@ -192,19 +254,29 @@ export default function RequestEvents() {
                       <span>{t("usage.events.source")}</span>
                       <code>{event.key_preview || "—"}</code>
                       <small>{event.provider || "—"}</small>
+                      {event.source && <small>{event.source}</small>}
                     </div>
                   </div>
                   <dl className="event-mobile-stats">
                     <div><dt>{t("usage.stats.input")}</dt><dd>{formatCount(event.input_tokens)}</dd></div>
                     <div><dt>{t("usage.stats.output")}</dt><dd>{formatCount(event.output_tokens)}</dd></div>
-                    <div><dt>{t("usage.stats.reasoning")}</dt><dd>{formatCount(event.reasoning_tokens ?? 0)}</dd></div>
+                    <div><dt>{t("usage.events.reasoningEffort")}</dt><dd>{event.reasoning_effort || "—"}</dd></div>
                     <div><dt>{t("usage.stats.cacheRead")}</dt><dd>{formatCount(cached)} · {cacheRate}</dd></div>
                     <div title={event.cache_creation_tokens ? undefined : t("usage.events.cacheCreationUnavailable")}>
                       <dt>{t("usage.stats.cacheCreation")}</dt>
                       <dd>{event.cache_creation_tokens ? formatCount(event.cache_creation_tokens) : "—"}</dd>
                     </div>
                     <div><dt>{t("usage.events.tokens")}</dt><dd>{formatCount(event.total_tokens)}</dd></div>
+                    <div><dt>{t("usage.stats.latency")}</dt><dd>{formatDuration(event.latency_ms)}</dd></div>
+                    <div><dt>{t("usage.stats.ttft")}</dt><dd>{formatDuration(event.ttft_ms)}</dd></div>
+                    <div><dt>TPS</dt><dd>{speedTPS === undefined ? "—" : formatRate(speedTPS)}</dd></div>
                   </dl>
+                  <div className="event-mobile-runtime">
+                    <span>{event.executor_type || "—"}</span>
+                    <span>{[event.auth_type, event.auth_index].filter(Boolean).join(" · ") || "—"}</span>
+                    <span>{event.service_tier || "—"}</span>
+                    {event.status_code ? <span>HTTP {event.status_code}</span> : null}
+                  </div>
                   <footer>
                     <span className="billing-badge">{event.billing_mode === "per_call" ? t("usage.events.perCall") : t("usage.events.byToken")}</span>
                     <strong>{event.cost_available ? formatUSD(event.cost_usd) : "—"}</strong>

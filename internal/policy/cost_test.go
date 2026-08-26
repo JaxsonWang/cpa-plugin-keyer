@@ -235,6 +235,40 @@ func TestComputeCacheCostBreakdownAdditive(t *testing.T) {
 	}
 }
 
+func TestComputeUsageCostBreakdownComponentsMatchTotal(t *testing.T) {
+	detail := UsageDetail{
+		InputTokens: 1_000_000, OutputTokens: 500_000,
+		CachedTokens: 200_000,
+	}
+	breakdown := ComputeUsageCostBreakdown("codex", 3, 15, 0.30, true, detail)
+	if !nearly(breakdown.UncachedInputUSD, 2.4) || !nearly(breakdown.CacheReadUSD, 0.06) ||
+		breakdown.CacheCreationUSD != 0 || !nearly(breakdown.OutputUSD, 7.5) {
+		t.Fatalf("cost breakdown = %+v", breakdown)
+	}
+	components := breakdown.UncachedInputUSD + breakdown.CacheReadUSD + breakdown.CacheCreationUSD + breakdown.OutputUSD
+	if !nearly(breakdown.TotalUSD, 9.96) || !nearly(components, breakdown.TotalUSD) {
+		t.Fatalf("component total = %v, total = %v", components, breakdown.TotalUSD)
+	}
+}
+
+func TestComputeUsageCostBreakdownFoldsUnpricedCacheReadsIntoInput(t *testing.T) {
+	detail := UsageDetail{
+		InputTokens:         800_000,
+		OutputTokens:        500_000,
+		CacheReadTokens:     200_000,
+		CacheCreationTokens: 100_000,
+	}
+	breakdown := ComputeUsageCostBreakdown("anthropic", 3, 15, 0, true, detail)
+	if !nearly(breakdown.UncachedInputUSD, 3) || breakdown.CacheReadUSD != 0 ||
+		!nearly(breakdown.CacheCreationUSD, 0.3) || !nearly(breakdown.OutputUSD, 7.5) {
+		t.Fatalf("fallback cost breakdown = %+v", breakdown)
+	}
+	components := breakdown.UncachedInputUSD + breakdown.CacheReadUSD + breakdown.CacheCreationUSD + breakdown.OutputUSD
+	if !nearly(breakdown.TotalUSD, 10.8) || !nearly(components, breakdown.TotalUSD) {
+		t.Fatalf("fallback component total = %v, total = %v", components, breakdown.TotalUSD)
+	}
+}
+
 // the policy layer: RecordUsage bills from already-parsed token counts (as
 // delivered by usage.handle), with no response body to parse. Previously only
 // RecordResponseCost existed, which required a parseable body — unreachable

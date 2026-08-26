@@ -198,7 +198,7 @@
     "range90d": "Last 90 days",
     "key": "Key ID",
     "allKeys": "All keys",
-    "provider": "Source",
+    "provider": "Provider",
     "allProviders": "All sources",
     "model": "Model",
     "allModels": "All models",
@@ -230,7 +230,12 @@
       "reasoning": "Reasoning",
       "cacheRead": "Cache read",
       "cacheCreation": "Cache write",
-      "summary": "Core usage metrics"
+      "summary": "Core usage metrics",
+      "latency": "Total latency",
+      "ttft": "TTFT",
+      "latencyP95": "P95 total latency",
+      "ttftP95": "P95 TTFT",
+      "samples": "{{count}} samples"
     },
     "chart": {
       "activityTitle": "Requests and token trend",
@@ -242,13 +247,36 @@
       "providerShare": "Source request share",
       "providerShareHint": "Group requests by the actual upstream source.",
       "keyUsage": "Key usage ranking",
-      "keyUsageHint": "Rank active keys by token consumption."
+      "keyUsageHint": "Rank active keys by token consumption.",
+      "latencyTrend": "Latency trend",
+      "latencyTrendHint": "Compare average total latency and TTFT over time.",
+      "latencyScatter": "Latency distribution",
+      "latencyScatterHint": "Compare TTFT and total latency for individual requests.",
+      "costBreakdown": "Cost breakdown",
+      "costBreakdownHint": "Split uncached input, cache read/write, output, and other costs.",
+      "cacheTrend": "Cache efficiency trend",
+      "cacheTrendHint": "Track cache reads, writes, and cache-read rate together.",
+      "executorShare": "Executor ranking",
+      "executorShareHint": "Rank actual executors by request volume.",
+      "heatmap": "Key × model heatmap",
+      "heatmapHint": "Inspect request activity for each Key and model combination.",
+      "runtimeProfile": "Runtime profile",
+      "runtimeProfileHint": "Summarize leading providers, auth types, sources, and service tiers.",
+      "authShare": "Authentication mix",
+      "authShareHint": "Show authentication methods by request volume."
     },
     "analysis": {
       "byModel": "Model usage",
       "modelEfficiency": "Model efficiency",
       "modelEfficiencyHint": "Compare requests, success rate, tokens, and cost per million tokens by model.",
-      "costPerMillion": "Cost per 1M tokens"
+      "costPerMillion": "Cost per 1M tokens",
+      "costPerRequest": "Cost / request",
+      "outputPerRequest": "Output / request",
+      "uncachedInput": "Uncached input",
+      "cacheReadCost": "Cache read",
+      "cacheWriteCost": "Cache write",
+      "outputCost": "Output",
+      "otherCost": "Other"
     },
     "events": {
       "time": "Time",
@@ -261,15 +289,29 @@
       "upstream": "Upstream",
       "source": "Source",
       "billing": "Billing",
+      "reasoningEffort": "Reasoning effort",
       "perCall": "Per call",
       "byToken": "By token",
       "cacheRate": "Cache rate",
-      "cacheCreationUnavailable": "The current CPA does not report cache writes separately"
+      "cacheCreationUnavailable": "The current CPA does not report cache writes separately",
+      "requestSource": "Request source",
+      "allSources": "All sources",
+      "executor": "Execution & auth",
+      "allExecutors": "All executors",
+      "authType": "Authentication type",
+      "allAuthTypes": "All authentication types",
+      "serviceTier": "Service tier",
+      "allServiceTiers": "All service tiers",
+      "statusCode": "HTTP status",
+      "allStatusCodes": "All status codes",
+      "performance": "Performance",
+      "cache": "Cache"
     },
     "dashboard": {
       "activity": "Usage analysis",
       "activityHint": "Trends, composition, and distribution share the same live filter range."
-    }
+    },
+    "noLatencyData": "No valid latency samples in the selected range"
   },
   "keyUsage": {
     "title": "Key usage detail",

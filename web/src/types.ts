@@ -119,6 +119,11 @@ export interface UsageFilters {
   key_ids: string[];
   providers: string[];
   models: string[];
+  executor_types: string[];
+  auth_types: string[];
+  sources: string[];
+  service_tiers: string[];
+  status_codes: number[];
 }
 
 export interface UsageTotals {
@@ -133,6 +138,11 @@ export interface UsageTotals {
   cache_creation_tokens: number;
   total_tokens: number;
   cost_usd: number;
+  uncached_input_cost_usd: number;
+  cache_read_cost_usd: number;
+  cache_creation_cost_usd: number;
+  output_cost_usd: number;
+  other_cost_usd: number;
 }
 
 export interface UsageTrendPoint {
@@ -148,6 +158,26 @@ export interface UsageTrendPoint {
   cache_creation_tokens: number;
   total_tokens: number;
   cost_usd: number;
+  uncached_input_cost_usd: number;
+  cache_read_cost_usd: number;
+  cache_creation_cost_usd: number;
+  output_cost_usd: number;
+  other_cost_usd: number;
+  average_latency_ms?: number;
+  average_ttft_ms?: number;
+}
+
+export interface UsagePerformance {
+  latency_samples: number;
+  average_latency_ms: number;
+  p50_latency_ms: number;
+  p95_latency_ms: number;
+  max_latency_ms: number;
+  ttft_samples: number;
+  average_ttft_ms: number;
+  p50_ttft_ms: number;
+  p95_ttft_ms: number;
+  max_ttft_ms: number;
 }
 
 export interface UsageOverviewResponse {
@@ -156,6 +186,7 @@ export interface UsageOverviewResponse {
   granularity: "hour" | "day";
   totals: UsageTotals;
   series: UsageTrendPoint[];
+  performance: UsagePerformance;
   filters: UsageFilters;
 }
 
@@ -172,6 +203,24 @@ export interface UsageBreakdown {
   cache_creation_tokens: number;
   total_tokens: number;
   cost_usd: number;
+  uncached_input_cost_usd: number;
+  cache_read_cost_usd: number;
+  cache_creation_cost_usd: number;
+  output_cost_usd: number;
+  other_cost_usd: number;
+}
+
+export interface UsageHeatmapCell {
+  key_id: string;
+  model: string;
+  request_count: number;
+  total_tokens: number;
+  cost_usd: number;
+}
+
+export interface UsageLatencyPoint {
+  ttft_ms: number;
+  latency_ms: number;
 }
 
 export interface UsageAnalysisResponse {
@@ -181,6 +230,12 @@ export interface UsageAnalysisResponse {
   by_model: UsageBreakdown[];
   by_key: UsageBreakdown[];
   by_provider: UsageBreakdown[];
+  by_executor: UsageBreakdown[];
+  by_auth_type: UsageBreakdown[];
+  by_source: UsageBreakdown[];
+  by_service_tier: UsageBreakdown[];
+  heatmap: UsageHeatmapCell[];
+  latency_points: UsageLatencyPoint[];
   filters: UsageFilters;
 }
 
@@ -192,10 +247,25 @@ export interface UsageEvent {
   provider?: string;
   model: string;
   upstream_model?: string;
+  reasoning_effort?: string;
+  executor_type?: string;
+  auth_type?: string;
+  auth_index?: string;
+  source?: string;
+  service_tier?: string;
+  generate: boolean;
+  latency_ms: number;
+  ttft_ms?: number;
+  status_code?: number;
   failed: boolean;
   billing_mode?: "tokens" | "per_call";
   cost_available: boolean;
   cost_usd: number;
+  uncached_input_cost_usd: number;
+  cache_read_cost_usd: number;
+  cache_creation_cost_usd: number;
+  output_cost_usd: number;
+  other_cost_usd: number;
   input_tokens: number;
   output_tokens: number;
   reasoning_tokens?: number;

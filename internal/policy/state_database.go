@@ -18,7 +18,7 @@ import (
 const (
 	usageHistoryRetention     = 90 * 24 * time.Hour
 	usageHistoryPruneInterval = time.Hour
-	stateDatabaseVersion      = 1
+	stateDatabaseVersion      = 2
 )
 
 type stateDatabase struct {
@@ -67,10 +67,13 @@ func openStateDatabase(path string, now func() time.Time) (*stateDatabase, error
 	database.insertStmt, err = db.Prepare(`
 		INSERT INTO usage_events (
 			timestamp_ns, key_id, key_preview, provider, model, upstream_model,
-			failed, billing_mode, cost_available, cost_usd, input_tokens,
-			output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens,
-			cache_creation_tokens, total_tokens
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+			reasoning_effort, executor_type, auth_type, auth_index, source,
+			service_tier, generate, latency_ms, ttft_ms, status_code, failed,
+			billing_mode, cost_available, cost_usd, uncached_input_cost_usd,
+			cache_read_cost_usd, cache_creation_cost_usd, output_cost_usd,
+			other_cost_usd, input_tokens, output_tokens, reasoning_tokens,
+			cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("prepare usage event insert: %w", err)
@@ -112,10 +115,25 @@ func (h *stateDatabase) initialize() error {
 			provider TEXT NOT NULL DEFAULT '',
 			model TEXT NOT NULL,
 			upstream_model TEXT NOT NULL DEFAULT '',
+			reasoning_effort TEXT NOT NULL DEFAULT '',
+			executor_type TEXT NOT NULL DEFAULT '',
+			auth_type TEXT NOT NULL DEFAULT '',
+			auth_index TEXT NOT NULL DEFAULT '',
+			source TEXT NOT NULL DEFAULT '',
+			service_tier TEXT NOT NULL DEFAULT '',
+			generate INTEGER NOT NULL DEFAULT 1,
+			latency_ms INTEGER NOT NULL DEFAULT 0,
+			ttft_ms INTEGER,
+			status_code INTEGER NOT NULL DEFAULT 0,
 			failed INTEGER NOT NULL,
 			billing_mode TEXT NOT NULL DEFAULT '',
 			cost_available INTEGER NOT NULL,
 			cost_usd REAL NOT NULL,
+			uncached_input_cost_usd REAL NOT NULL DEFAULT 0,
+			cache_read_cost_usd REAL NOT NULL DEFAULT 0,
+			cache_creation_cost_usd REAL NOT NULL DEFAULT 0,
+			output_cost_usd REAL NOT NULL DEFAULT 0,
+			other_cost_usd REAL NOT NULL DEFAULT 0,
 			input_tokens INTEGER NOT NULL,
 			output_tokens INTEGER NOT NULL,
 			reasoning_tokens INTEGER NOT NULL,
@@ -133,6 +151,75 @@ func (h *stateDatabase) initialize() error {
 		if _, err := h.db.Exec(statement); err != nil {
 			return fmt.Errorf("initialize usage database: %w", err)
 		}
+	}
+	if err := h.migrateSchema(); err != nil {
+		return err
+	}
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS usage_events_executor_time_idx ON usage_events(executor_type COLLATE NOCASE, timestamp_ns)`,
+		`CREATE INDEX IF NOT EXISTS usage_events_auth_type_time_idx ON usage_events(auth_type COLLATE NOCASE, timestamp_ns)`,
+		`CREATE INDEX IF NOT EXISTS usage_events_source_time_idx ON usage_events(source COLLATE NOCASE, timestamp_ns)`,
+		`CREATE INDEX IF NOT EXISTS usage_events_service_tier_time_idx ON usage_events(service_tier COLLATE NOCASE, timestamp_ns)`,
+		`CREATE INDEX IF NOT EXISTS usage_events_status_time_idx ON usage_events(status_code, timestamp_ns)`,
+	}
+	for _, statement := range indexes {
+		if _, err := h.db.Exec(statement); err != nil {
+			return fmt.Errorf("initialize usage database indexes: %w", err)
+		}
+	}
+	return nil
+}
+
+func (h *stateDatabase) migrateSchema() error {
+	var version int
+	if err := h.db.QueryRow(`SELECT schema_version FROM state_meta WHERE id = 1`).Scan(&version); err != nil {
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		return fmt.Errorf("read state database schema version: %w", err)
+	}
+	if version > stateDatabaseVersion {
+		return fmt.Errorf("state database schema version %d is newer than supported version %d", version, stateDatabaseVersion)
+	}
+	if version == stateDatabaseVersion {
+		return nil
+	}
+	if version != 1 {
+		return fmt.Errorf("state database schema version %d is unsupported", version)
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin state database schema migration: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	migrations := []string{
+		`ALTER TABLE usage_events ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE usage_events ADD COLUMN executor_type TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE usage_events ADD COLUMN auth_type TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE usage_events ADD COLUMN auth_index TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE usage_events ADD COLUMN source TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE usage_events ADD COLUMN service_tier TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE usage_events ADD COLUMN generate INTEGER NOT NULL DEFAULT 1`,
+		`ALTER TABLE usage_events ADD COLUMN latency_ms INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE usage_events ADD COLUMN ttft_ms INTEGER`,
+		`ALTER TABLE usage_events ADD COLUMN status_code INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE usage_events ADD COLUMN uncached_input_cost_usd REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE usage_events ADD COLUMN cache_read_cost_usd REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE usage_events ADD COLUMN cache_creation_cost_usd REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE usage_events ADD COLUMN output_cost_usd REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE usage_events ADD COLUMN other_cost_usd REAL NOT NULL DEFAULT 0`,
+	}
+	for _, statement := range migrations {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("migrate usage event details: %w", err)
+		}
+	}
+	if _, err := tx.Exec(`UPDATE state_meta SET schema_version = ?, updated_at_ms = ? WHERE id = 1`, stateDatabaseVersion, h.currentTime().UnixMilli()); err != nil {
+		return fmt.Errorf("update state database schema version: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit state database schema migration: %w", err)
 	}
 	return nil
 }
@@ -409,6 +496,26 @@ func normalizeUsageEvent(event UsageEvent, now time.Time) UsageEvent {
 	event.Provider = strings.TrimSpace(event.Provider)
 	event.Model = strings.TrimSpace(event.Model)
 	event.UpstreamModel = strings.TrimSpace(event.UpstreamModel)
+	event.ReasoningEffort = strings.TrimSpace(event.ReasoningEffort)
+	event.ExecutorType = strings.TrimSpace(event.ExecutorType)
+	event.AuthType = strings.TrimSpace(event.AuthType)
+	event.AuthIndex = strings.TrimSpace(event.AuthIndex)
+	event.Source = strings.TrimSpace(event.Source)
+	event.ServiceTier = strings.TrimSpace(event.ServiceTier)
+	if event.LatencyMS < 0 {
+		event.LatencyMS = 0
+	}
+	if event.TTFTMS != nil {
+		value := maxInt64(0, *event.TTFTMS)
+		if value == 0 {
+			event.TTFTMS = nil
+		} else {
+			event.TTFTMS = &value
+		}
+	}
+	if event.StatusCode < 0 {
+		event.StatusCode = 0
+	}
 	event.BillingMode = strings.TrimSpace(event.BillingMode)
 	if event.TotalTokens <= 0 {
 		event.TotalTokens = maxInt64(0, event.InputTokens) + maxInt64(0, event.OutputTokens)
@@ -419,10 +526,15 @@ func normalizeUsageEvent(event UsageEvent, now time.Time) UsageEvent {
 func usageEventArgs(event UsageEvent) []any {
 	return []any{
 		event.Timestamp.UnixNano(), event.KeyID, event.KeyPreview, event.Provider,
-		event.Model, event.UpstreamModel, boolInt(event.Failed), event.BillingMode,
-		boolInt(event.CostAvailable), event.CostUSD, event.InputTokens,
-		event.OutputTokens, event.ReasoningTokens, event.CachedTokens,
-		event.CacheReadTokens, event.CacheCreationTokens, event.TotalTokens,
+		event.Model, event.UpstreamModel, event.ReasoningEffort, event.ExecutorType,
+		event.AuthType, event.AuthIndex, event.Source, event.ServiceTier,
+		boolInt(event.Generate), event.LatencyMS, event.TTFTMS, event.StatusCode,
+		boolInt(event.Failed), event.BillingMode, boolInt(event.CostAvailable), event.CostUSD,
+		event.UncachedInputCostUSD, event.CacheReadCostUSD,
+		event.CacheCreationCostUSD, event.OutputCostUSD, event.OtherCostUSD,
+		event.InputTokens, event.OutputTokens, event.ReasoningTokens,
+		event.CachedTokens, event.CacheReadTokens, event.CacheCreationTokens,
+		event.TotalTokens,
 	}
 }
 

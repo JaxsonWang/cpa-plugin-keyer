@@ -1,4 +1,4 @@
-import { BarChart, LineChart, PieChart } from "echarts/charts";
+import { BarChart, HeatmapChart, LineChart, PieChart, ScatterChart } from "echarts/charts";
 import {
   AriaComponent,
   AxisPointerComponent,
@@ -6,6 +6,7 @@ import {
   GridComponent,
   LegendComponent,
   TooltipComponent,
+  VisualMapComponent,
 } from "echarts/components";
 import { use } from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
@@ -17,10 +18,13 @@ use([
   CanvasRenderer,
   DatasetComponent,
   GridComponent,
+  HeatmapChart,
   LegendComponent,
   LineChart,
   PieChart,
+  ScatterChart,
   TooltipComponent,
+  VisualMapComponent,
 ]);
 
 export { init } from "echarts/core";

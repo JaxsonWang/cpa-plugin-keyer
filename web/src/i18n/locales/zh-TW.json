@@ -191,7 +191,7 @@
     "range90d": "最近 90 天",
     "key": "Key ID",
     "allKeys": "全部 Key",
-    "provider": "來源",
+    "provider": "供應商",
     "allProviders": "全部來源",
     "model": "模型",
     "allModels": "全部模型",
@@ -223,7 +223,12 @@
       "reasoning": "推理",
       "cacheRead": "快取讀取",
       "cacheCreation": "快取寫入",
-      "summary": "核心用量指標"
+      "summary": "核心用量指標",
+      "latency": "總延遲",
+      "ttft": "首字延遲",
+      "latencyP95": "P95 總延遲",
+      "ttftP95": "P95 首字延遲",
+      "samples": "{{count}} 個樣本"
     },
     "chart": {
       "activityTitle": "請求與 Token 趨勢",
@@ -235,13 +240,36 @@
       "providerShare": "來源請求佔比",
       "providerShareHint": "依實際上游來源統計請求分布。",
       "keyUsage": "Key 使用排行",
-      "keyUsageHint": "依 Token 消耗展示活躍 Key。"
+      "keyUsageHint": "依 Token 消耗展示活躍 Key。",
+      "latencyTrend": "延遲趨勢",
+      "latencyTrendHint": "依時間比較平均總延遲與首字延遲。",
+      "latencyScatter": "延遲分布",
+      "latencyScatterHint": "比較單次請求的首字延遲與總延遲。",
+      "costBreakdown": "費用構成",
+      "costBreakdownHint": "拆分非快取輸入、快取讀寫、輸出和其他費用。",
+      "cacheTrend": "快取效率趨勢",
+      "cacheTrendHint": "同時查看快取讀寫量與快取讀取率。",
+      "executorShare": "執行器排行",
+      "executorShareHint": "依請求量展示實際執行器分布。",
+      "heatmap": "Key × 模型熱力圖",
+      "heatmapHint": "查看各 Key 與模型組合的請求活躍度。",
+      "runtimeProfile": "執行概況",
+      "runtimeProfileHint": "彙總主要供應商、認證方式、來源與服務層級。",
+      "authShare": "認證類型分布",
+      "authShareHint": "依請求量展示認證方式分布。"
     },
     "analysis": {
       "byModel": "模型使用排行",
       "modelEfficiency": "模型效率",
       "modelEfficiencyHint": "依模型比較請求、成功率、Token 和每百萬 Token 成本。",
-      "costPerMillion": "每 1M Token 成本"
+      "costPerMillion": "每 1M Token 成本",
+      "costPerRequest": "每請求費用",
+      "outputPerRequest": "每請求輸出",
+      "uncachedInput": "非快取輸入",
+      "cacheReadCost": "快取讀取",
+      "cacheWriteCost": "快取寫入",
+      "outputCost": "輸出",
+      "otherCost": "其他"
     },
     "events": {
       "time": "時間",
@@ -254,15 +282,29 @@
       "upstream": "實際模型",
       "source": "來源",
       "billing": "計費",
+      "reasoningEffort": "推理強度",
       "perCall": "按次",
       "byToken": "按 Token",
       "cacheRate": "快取率",
-      "cacheCreationUnavailable": "目前 CPA 未提供獨立快取寫入統計"
+      "cacheCreationUnavailable": "目前 CPA 未提供獨立快取寫入統計",
+      "requestSource": "請求來源",
+      "allSources": "全部來源",
+      "executor": "執行與認證",
+      "allExecutors": "全部執行器",
+      "authType": "認證類型",
+      "allAuthTypes": "全部認證類型",
+      "serviceTier": "服務層級",
+      "allServiceTiers": "全部服務層級",
+      "statusCode": "HTTP 狀態碼",
+      "allStatusCodes": "全部狀態碼",
+      "performance": "效能",
+      "cache": "快取"
     },
     "dashboard": {
       "activity": "用量分析",
       "activityHint": "趨勢、構成與分布使用同一篩選範圍即時彙總。"
-    }
+    },
+    "noLatencyData": "所選範圍內暫無有效延遲樣本"
   },
   "keyUsage": {
     "title": "Key 用量詳情",

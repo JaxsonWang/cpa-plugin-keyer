@@ -350,12 +350,34 @@ func (s *Store) RecordUsage(apiKeyOrID, requestedModel, model string, failed boo
 		upstreamModel = resolved
 	}
 	history := s.runtimeHistory()
+	generate := true
+	if detail.Generate != nil {
+		generate = *detail.Generate
+	}
+	var ttftMS *int64
+	if detail.TTFT > 0 {
+		value := detail.TTFT.Milliseconds()
+		if value > 0 {
+			ttftMS = &value
+		}
+	}
 	event := UsageEvent{
+		Timestamp:           detail.RequestedAt,
 		KeyID:               key.ID,
 		KeyPreview:          MaskKeyPreview(key.KeyPreview),
 		Provider:            detail.Provider,
 		Model:               resolved,
 		UpstreamModel:       upstreamModel,
+		ReasoningEffort:     detail.ReasoningEffort,
+		ExecutorType:        detail.ExecutorType,
+		AuthType:            detail.AuthType,
+		AuthIndex:           detail.AuthIndex,
+		Source:              detail.Source,
+		ServiceTier:         detail.ServiceTier,
+		Generate:            generate,
+		LatencyMS:           maxInt64(0, detail.Latency.Milliseconds()),
+		TTFTMS:              ttftMS,
+		StatusCode:          detail.FailureStatusCode,
 		Failed:              failed,
 		InputTokens:         detail.InputTokens,
 		OutputTokens:        detail.OutputTokens,
@@ -389,6 +411,7 @@ func (s *Store) RecordUsage(apiKeyOrID, requestedModel, model string, failed boo
 		}
 		cost := rule.PerCallUSD
 		event.CostUSD = cost
+		event.OtherCostUSD = cost
 		if ledger != nil {
 			ledger.RecordCost(key.ID, resolved, cost, 0, 0, 0, 0, 1)
 		}
@@ -406,31 +429,19 @@ func (s *Store) RecordUsage(apiKeyOrID, requestedModel, model string, failed boo
 	}
 	inputPrice, outputPrice, cachePrice, priced := key.PriceForModel(resolved)
 	event.CostAvailable = priced
-	cost, cacheCost, cacheRead := ComputeCacheCostBreakdown(detail.Provider, inputPrice, outputPrice, cachePrice, priced, detail)
-	event.CostUSD = cost
+	breakdown := ComputeUsageCostBreakdown(detail.Provider, inputPrice, outputPrice, cachePrice, priced, detail)
+	event.CostUSD = breakdown.TotalUSD
+	event.UncachedInputCostUSD = breakdown.UncachedInputUSD
+	event.CacheReadCostUSD = breakdown.CacheReadUSD
+	event.CacheCreationCostUSD = breakdown.CacheCreationUSD
+	event.OutputCostUSD = breakdown.OutputUSD
 	if !priced || ledger == nil {
 		recordEvent()
-		return cost
+		return breakdown.TotalUSD
 	}
-	inputTokens := nonCacheInputTokens(detail.Provider, detail, cacheRead)
-	ledger.RecordCost(key.ID, resolved, cost, cacheCost, cacheRead, inputTokens, detail.OutputTokens, 1)
+	ledger.RecordCost(key.ID, resolved, breakdown.TotalUSD, breakdown.CacheReadUSD, breakdown.CacheReadTokens, breakdown.NonCacheInputTokens, detail.OutputTokens, 1)
 	recordEvent()
-	return cost
-}
-
-func nonCacheInputTokens(provider string, detail UsageDetail, cacheRead int64) int64 {
-	input := detail.InputTokens
-	if isCacheAdditiveProvider(provider) {
-		input += detail.CacheCreationTokens
-		if input < 0 {
-			return 0
-		}
-		return input
-	}
-	if cacheRead > input {
-		return 0
-	}
-	return input - cacheRead
+	return breakdown.TotalUSD
 }
 
 func (s *Store) UsageSummaryFor(key KeyConfig) UsageSummary {

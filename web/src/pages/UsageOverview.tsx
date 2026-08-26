@@ -3,18 +3,27 @@ import { fetchUsageAnalysis, fetchUsageOverview } from "../api/usage";
 import UsageControls from "../components/UsageControls";
 import {
   ActivityChart,
+  CacheEfficiencyChart,
+  CostBreakdownChart,
+  DimensionShareChart,
   KeyUsageChart,
+  LatencyScatterChart,
+  LatencyTrendChart,
   ModelShareChart,
   ProviderShareChart,
   TokenCompositionChart,
+  UsageHeatmapChart,
 } from "../components/UsageDashboardCharts";
 import { useT } from "../i18n";
 import type { UsageAnalysisResponse, UsageOverviewResponse, UsageRange } from "../types";
 import {
   averagePerMinute,
   cacheRate,
+  cacheRateValue,
   costPerMillion,
   formatCount,
+  formatDuration,
+  formatPercent,
   formatRate,
   formatSummaryUSD,
   formatUSD,
@@ -35,7 +44,7 @@ function DashboardSkeleton() {
   return (
     <div className="dashboard-skeleton" aria-hidden="true">
       <div className="dashboard-skeleton-metrics">
-        {Array.from({ length: 6 }, (_, index) => <span key={index} className={index < 2 ? "wide" : ""} />)}
+        {Array.from({ length: 8 }, (_, index) => <span key={index} className={index < 2 ? "wide" : ""} />)}
       </div>
       <div className="dashboard-skeleton-charts"><span /><span /><span /></div>
     </div>
@@ -45,7 +54,7 @@ function DashboardSkeleton() {
 function ModelEfficiency({ data }: { data: UsageAnalysisResponse }) {
   const t = useT();
   return (
-    <section className="dashboard-chart-card dashboard-span-2 model-efficiency-card">
+    <section className="dashboard-chart-card dashboard-span-3 model-efficiency-card">
       <div className="dashboard-card-head">
         <div><h2>{t("usage.analysis.modelEfficiency")}</h2><p>{t("usage.analysis.modelEfficiencyHint")}</p></div>
         <span>{t("usage.analysis.byModel")}</span>
@@ -55,7 +64,8 @@ function ModelEfficiency({ data }: { data: UsageAnalysisResponse }) {
           <thead><tr>
             <th>#</th><th>{t("usage.events.model")}</th><th>{t("usage.stats.requests")}</th>
             <th>{t("usage.stats.successRate")}</th><th>{t("usage.stats.tokens")}</th>
-            <th>{t("usage.stats.cost")}</th><th>{t("usage.analysis.costPerMillion")}</th>
+            <th>{t("usage.stats.cost")}</th><th>{t("usage.analysis.costPerRequest")}</th>
+            <th>{t("usage.analysis.outputPerRequest")}</th><th>{t("usage.stats.cache")}</th>
           </tr></thead>
           <tbody>
             {data.by_model.slice(0, 10).map((row, index) => (
@@ -69,10 +79,12 @@ function ModelEfficiency({ data }: { data: UsageAnalysisResponse }) {
                 <td>{successRate(row)}</td>
                 <td>{formatCount(row.total_tokens)}</td>
                 <td>{formatUSD(row.cost_usd)}</td>
-                <td>{costPerMillion(row.cost_usd, row.total_tokens)}</td>
+                <td>{row.request_count ? formatUSD(row.cost_usd / row.request_count) : "—"}</td>
+                <td>{row.request_count ? formatCount(row.output_tokens / row.request_count) : "—"}</td>
+                <td>{formatPercent(cacheRateValue(row) ?? Number.NaN)}</td>
               </tr>
             ))}
-            {data.by_model.length === 0 && <tr><td colSpan={7} className="analysis-empty muted">{t("usage.noData")}</td></tr>}
+            {data.by_model.length === 0 && <tr><td colSpan={9} className="analysis-empty muted">{t("usage.noData")}</td></tr>}
           </tbody>
         </table>
       </div>
@@ -115,6 +127,7 @@ export default function UsageOverview() {
   const cacheTokens = totals ? Math.max(totals.cache_read_tokens, totals.cached_tokens) : 0;
   const rpm = overview && totals ? averagePerMinute(totals.request_count, overview.from, overview.to) : 0;
   const tpm = overview && totals ? averagePerMinute(totals.total_tokens, overview.from, overview.to) : 0;
+  const performance = overview?.performance;
 
   return (
     <div className="usage-page dashboard-page">
@@ -162,6 +175,8 @@ export default function UsageOverview() {
             <article className="dashboard-kpi compact"><span>TPM</span><strong>{formatRate(tpm)}</strong><small>{t("usage.stats.tokens")}</small></article>
             <article className="dashboard-kpi compact"><span>{t("usage.stats.cache")}</span><strong>{cacheRate(totals)}</strong><small>{formatCount(cacheTokens)} Token</small></article>
             <article className="dashboard-kpi compact"><span>{t("usage.stats.cost")}</span><strong>{formatSummaryUSD(totals.cost_usd)}</strong><small>{costPerMillion(totals.cost_usd, totals.total_tokens)} / 1M</small></article>
+            <article className="dashboard-kpi compact latency-tone"><span>{t("usage.stats.latencyP95")}</span><strong>{formatDuration(performance?.p95_latency_ms)}</strong><small>{t("usage.stats.samples", { count: formatCount(performance?.latency_samples ?? 0) })}</small></article>
+            <article className="dashboard-kpi compact ttft-tone"><span>{t("usage.stats.ttftP95")}</span><strong>{formatDuration(performance?.p95_ttft_ms)}</strong><small>{t("usage.stats.samples", { count: formatCount(performance?.ttft_samples ?? 0) })}</small></article>
           </section>
 
           <div className="usage-section-head dashboard-section-head">
@@ -172,7 +187,7 @@ export default function UsageOverview() {
           <div className="dashboard-grid">
             <section className="dashboard-chart-card dashboard-span-2">
               <div className="dashboard-card-head"><div><h2>{t("usage.chart.activityTitle")}</h2><p>{t("usage.chart.activityHint")}</p></div><span>{formatCount(totals.request_count)} / {formatCount(totals.total_tokens)}</span></div>
-              <ActivityChart points={overview.series} />
+              <ActivityChart points={overview.series} granularity={overview.granularity} />
             </section>
             <section className="dashboard-chart-card">
               <div className="dashboard-card-head"><div><h2>{t("usage.chart.modelShare")}</h2><p>{t("usage.chart.modelShareHint")}</p></div></div>
@@ -180,17 +195,57 @@ export default function UsageOverview() {
             </section>
 
             <section className="dashboard-chart-card dashboard-span-2">
+              <div className="dashboard-card-head"><div><h2>{t("usage.chart.latencyTrend")}</h2><p>{t("usage.chart.latencyTrendHint")}</p></div><span>P95 {formatDuration(performance?.p95_latency_ms)}</span></div>
+              <LatencyTrendChart points={overview.series} />
+            </section>
+            <section className="dashboard-chart-card">
+              <div className="dashboard-card-head"><div><h2>{t("usage.chart.latencyScatter")}</h2><p>{t("usage.chart.latencyScatterHint")}</p></div><span>{formatCount(analysis.latency_points.length)}</span></div>
+              {analysis.latency_points.length > 0 ? <LatencyScatterChart points={analysis.latency_points} /> : <div className="analysis-empty muted">{t("usage.noLatencyData")}</div>}
+            </section>
+
+            <section className="dashboard-chart-card dashboard-span-2">
               <div className="dashboard-card-head"><div><h2>{t("usage.chart.tokenComposition")}</h2><p>{t("usage.chart.tokenCompositionHint")}</p></div><span>{formatCount(totals.total_tokens)}</span></div>
               <TokenCompositionChart points={overview.series} />
             </section>
             <section className="dashboard-chart-card">
-              <div className="dashboard-card-head"><div><h2>{t("usage.chart.providerShare")}</h2><p>{t("usage.chart.providerShareHint")}</p></div></div>
-              {analysis.by_provider.length > 0 ? <ProviderShareChart rows={analysis.by_provider} /> : <div className="analysis-empty muted">{t("usage.noData")}</div>}
+              <div className="dashboard-card-head"><div><h2>{t("usage.chart.costBreakdown")}</h2><p>{t("usage.chart.costBreakdownHint")}</p></div><span>{formatSummaryUSD(totals.cost_usd)}</span></div>
+              {totals.cost_usd > 0 ? <CostBreakdownChart totals={totals} /> : <div className="analysis-empty muted">{t("usage.noData")}</div>}
+            </section>
+
+            <section className="dashboard-chart-card dashboard-span-2">
+              <div className="dashboard-card-head"><div><h2>{t("usage.chart.cacheTrend")}</h2><p>{t("usage.chart.cacheTrendHint")}</p></div><span>{cacheRate(totals)}</span></div>
+              <CacheEfficiencyChart points={overview.series} />
+            </section>
+            <section className="dashboard-chart-card">
+              <div className="dashboard-card-head"><div><h2>{t("usage.chart.executorShare")}</h2><p>{t("usage.chart.executorShareHint")}</p></div></div>
+              {analysis.by_executor.length > 0 ? <DimensionShareChart rows={analysis.by_executor} ariaLabel={t("usage.chart.executorShare")} /> : <div className="analysis-empty muted">{t("usage.noData")}</div>}
+            </section>
+
+            <section className="dashboard-chart-card dashboard-span-2">
+              <div className="dashboard-card-head"><div><h2>{t("usage.chart.heatmap")}</h2><p>{t("usage.chart.heatmapHint")}</p></div><span>{formatCount(analysis.heatmap.length)}</span></div>
+              {analysis.heatmap.length > 0 ? <UsageHeatmapChart cells={analysis.heatmap} /> : <div className="analysis-empty muted">{t("usage.noData")}</div>}
+            </section>
+            <section className="dashboard-chart-card dimension-stack-card">
+              <div className="dashboard-card-head"><div><h2>{t("usage.chart.runtimeProfile")}</h2><p>{t("usage.chart.runtimeProfileHint")}</p></div></div>
+              <div className="dimension-stack">
+                <div><span>{t("usage.provider")}</span><strong>{analysis.by_provider[0]?.name ?? "—"}</strong><small>{formatCount(analysis.by_provider[0]?.request_count ?? 0)} {t("usage.stats.requests")}</small></div>
+                <div><span>{t("usage.events.authType")}</span><strong>{analysis.by_auth_type[0]?.name ?? "—"}</strong><small>{formatCount(analysis.by_auth_type[0]?.request_count ?? 0)} {t("usage.stats.requests")}</small></div>
+                <div><span>{t("usage.events.serviceTier")}</span><strong>{analysis.by_service_tier[0]?.name ?? "—"}</strong><small>{formatCount(analysis.by_service_tier[0]?.request_count ?? 0)} {t("usage.stats.requests")}</small></div>
+                <div><span>{t("usage.events.requestSource")}</span><strong>{analysis.by_source[0]?.name ?? "—"}</strong><small>{formatCount(analysis.by_source[0]?.request_count ?? 0)} {t("usage.stats.requests")}</small></div>
+              </div>
             </section>
 
             <section className="dashboard-chart-card">
               <div className="dashboard-card-head"><div><h2>{t("usage.chart.keyUsage")}</h2><p>{t("usage.chart.keyUsageHint")}</p></div></div>
               {analysis.by_key.length > 0 ? <KeyUsageChart rows={analysis.by_key} /> : <div className="analysis-empty muted">{t("usage.noData")}</div>}
+            </section>
+            <section className="dashboard-chart-card">
+              <div className="dashboard-card-head"><div><h2>{t("usage.chart.providerShare")}</h2><p>{t("usage.chart.providerShareHint")}</p></div></div>
+              {analysis.by_provider.length > 0 ? <ProviderShareChart rows={analysis.by_provider} /> : <div className="analysis-empty muted">{t("usage.noData")}</div>}
+            </section>
+            <section className="dashboard-chart-card">
+              <div className="dashboard-card-head"><div><h2>{t("usage.chart.authShare")}</h2><p>{t("usage.chart.authShareHint")}</p></div></div>
+              {analysis.by_auth_type.length > 0 ? <DimensionShareChart rows={analysis.by_auth_type} ariaLabel={t("usage.chart.authShare")} /> : <div className="analysis-empty muted">{t("usage.noData")}</div>}
             </section>
             <ModelEfficiency data={analysis} />
           </div>

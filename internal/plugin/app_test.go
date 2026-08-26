@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/JaxsonWang/cpa-plugin-keyer/internal/policy"
 )
@@ -523,8 +524,8 @@ func TestRegistrationUsesCpaKeyerIdentity(t *testing.T) {
 	if PluginID != "cpa-keyer" || registration.Metadata.Name != "Keyer" {
 		t.Fatalf("plugin identity = %q / %q, want cpa-keyer / Keyer", PluginID, registration.Metadata.Name)
 	}
-	if registration.Metadata.Version != "0.7.2" {
-		t.Fatalf("plugin version = %q, want 0.7.2", registration.Metadata.Version)
+	if registration.Metadata.Version != "0.7.3" {
+		t.Fatalf("plugin version = %q, want 0.7.3", registration.Metadata.Version)
 	}
 	if registration.Metadata.GitHubRepository != "https://github.com/JaxsonWang/cpa-plugin-keyer" {
 		t.Fatalf("repository = %q", registration.Metadata.GitHubRepository)
@@ -575,8 +576,13 @@ func TestManagementRegistrationIncludesUsageReportingRoutes(t *testing.T) {
 
 func TestManagementUsageReportingUsesKeyIDAndRealUsageFields(t *testing.T) {
 	app, plain := configureTestApp(t, 60)
+	requestedAt := time.Now().UTC().Add(-time.Minute).Truncate(time.Millisecond)
+	generate := true
 	usageRequest, _ := json.Marshal(UsageHandleRequest{
 		Provider: "codex", Model: "gpt-5.4", Alias: "gpt-5.4", APIKey: "team-a",
+		ExecutorType: "codex", AuthType: "apikey", AuthIndex: "4", Source: "openai-responses",
+		ReasoningEffort: "xhigh", ServiceTier: "priority", Generate: &generate,
+		RequestedAt: requestedAt, Latency: 2400 * time.Millisecond, TTFT: 425 * time.Millisecond,
 		Detail: UsageDetail{InputTokens: 1_000, OutputTokens: 200, ReasoningTokens: 50, CachedTokens: 100, TotalTokens: 1_200},
 	})
 	if _, err := app.HandleMethod(MethodUsageHandle, usageRequest); err != nil {
@@ -584,6 +590,9 @@ func TestManagementUsageReportingUsesKeyIDAndRealUsageFields(t *testing.T) {
 	}
 	failedRequest, _ := json.Marshal(UsageHandleRequest{
 		Provider: "codex", Model: "gpt-5.4", Alias: "gpt-5.4", APIKey: "team-a", Failed: true,
+		ExecutorType: "codex", AuthType: "apikey", AuthIndex: "4", Source: "openai-responses",
+		ServiceTier: "priority",
+		Failure:     UsageFailure{StatusCode: http.StatusTooManyRequests},
 	})
 	if _, err := app.HandleMethod(MethodUsageHandle, failedRequest); err != nil {
 		t.Fatal(err)
@@ -632,9 +641,41 @@ func TestManagementUsageReportingUsesKeyIDAndRealUsageFields(t *testing.T) {
 	if events.Total != 2 || events.Events[0].KeyID != "team-a" || events.Events[0].KeyPreview != policy.MaskKeyPreview(policy.PreviewKey(plain)) || events.Events[0].Provider != "codex" {
 		t.Fatalf("events = %+v", events)
 	}
+	if events.Events[1].ReasoningEffort != "xhigh" {
+		t.Fatalf("reasoning effort = %q, want xhigh", events.Events[1].ReasoningEffort)
+	}
+	detail := events.Events[1]
+	if !detail.Timestamp.Equal(requestedAt) || detail.ExecutorType != "codex" ||
+		detail.AuthType != "apikey" || detail.AuthIndex != "4" || detail.Source != "openai-responses" ||
+		detail.ServiceTier != "priority" || !detail.Generate || detail.LatencyMS != 2_400 ||
+		detail.TTFTMS == nil || *detail.TTFTMS != 425 {
+		t.Fatalf("usage.handle runtime details = %+v", detail)
+	}
+	if events.Events[0].StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("failed status code = %d, want %d", events.Events[0].StatusCode, http.StatusTooManyRequests)
+	}
+	componentTotal := detail.UncachedInputCostUSD + detail.CacheReadCostUSD +
+		detail.CacheCreationCostUSD + detail.OutputCostUSD + detail.OtherCostUSD
+	if !nearlyPlugin(componentTotal, detail.CostUSD) {
+		t.Fatalf("usage.handle cost components = %+v, sum=%v", detail, componentTotal)
+	}
+	if len(analysis.ByExecutor) != 1 || analysis.ByExecutor[0].Name != "codex" ||
+		len(analysis.ByAuthType) != 1 || analysis.ByAuthType[0].Name != "apikey" ||
+		len(analysis.BySource) != 1 || analysis.BySource[0].Name != "openai-responses" ||
+		len(analysis.ByServiceTier) != 1 || analysis.ByServiceTier[0].Name != "priority" {
+		t.Fatalf("usage.handle analysis dimensions = %+v", analysis)
+	}
 	if strings.Contains(string(eventsResponse.Body), plain) || strings.Contains(string(eventsResponse.Body), "cpa_plugin_test") {
 		t.Fatalf("request events exposed the raw downstream key: %s", eventsResponse.Body)
 	}
+}
+
+func nearlyPlugin(left, right float64) bool {
+	difference := left - right
+	if difference < 0 {
+		difference = -difference
+	}
+	return difference < 1e-12
 }
 
 func TestManagementResetUsageClearsDailyAndWeeklyAndPersists(t *testing.T) {
