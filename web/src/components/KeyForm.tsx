@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useId, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import type { KeyFormValues, KeyPublic, ModelRule } from "../types";
 import ModelPicker from "./ModelPicker";
@@ -78,6 +78,7 @@ export default function KeyForm({
   const [weeklyLimit, setWeeklyLimit] = useState(initial?.weekly_limit_usd ?? 0);
   const [allowModels, setAllowModels] = useState<boolean>(initial?.allow_models_endpoint ?? false);
   const t = useT();
+  const formID = useId();
 
   // Pricing table keyed by exact model name (case-insensitive) so it survives
   // picker re-emits.
@@ -262,6 +263,7 @@ export default function KeyForm({
 
   const renderPriceEditor = (m: ModelRule, layout: "table" | "mobile") => {
     const key = priceKey(m);
+    const fieldID = (field: string) => `${formID}-${layout}-${key.replace(/[^a-z0-9_-]/gi, "-")}-${field}`;
     const row = prices[key] ?? {
       input_price_per_million: 0,
       output_price_per_million: 0,
@@ -293,10 +295,13 @@ export default function KeyForm({
           </div>
           {perCall ? (
             <div className="form-row">
-              <label>{t("keyForm.colPerCall")}</label>
+              <label htmlFor={fieldID("per-call")}>{t("keyForm.colPerCall")}</label>
               <input
+                id={fieldID("per-call")}
+                name={`models.${key}.per_call_usd`}
                 className="input"
                 type="number"
+                inputMode="decimal"
                 min={0}
                 step="0.0001"
                 value={row.per_call_usd}
@@ -306,10 +311,13 @@ export default function KeyForm({
           ) : (
             <>
               <div className="form-row">
-                <label>{t("keyForm.colInput")}</label>
+                <label htmlFor={fieldID("input")}>{t("keyForm.colInput")}</label>
                 <input
+                  id={fieldID("input")}
+                  name={`models.${key}.input_price_per_million`}
                   className="input"
                   type="number"
+                  inputMode="decimal"
                   min={0}
                   step="0.01"
                   value={row.input_price_per_million}
@@ -317,10 +325,13 @@ export default function KeyForm({
                 />
               </div>
               <div className="form-row">
-                <label>{t("keyForm.colOutput")}</label>
+                <label htmlFor={fieldID("output")}>{t("keyForm.colOutput")}</label>
                 <input
+                  id={fieldID("output")}
+                  name={`models.${key}.output_price_per_million`}
                   className="input"
                   type="number"
+                  inputMode="decimal"
                   min={0}
                   step="0.01"
                   value={row.output_price_per_million}
@@ -328,10 +339,13 @@ export default function KeyForm({
                 />
               </div>
               <div className="form-row">
-                <label title={t("keyForm.colCacheReadHint")}>{t("keyForm.colCacheRead")}</label>
+                <label htmlFor={fieldID("cache-read")} title={t("keyForm.colCacheReadHint")}>{t("keyForm.colCacheRead")}</label>
                 <input
+                  id={fieldID("cache-read")}
+                  name={`models.${key}.cache_read_price_per_million`}
                   className="input"
                   type="number"
+                  inputMode="decimal"
                   min={0}
                   step="0.01"
                   value={row.cache_read_price_per_million}
@@ -365,6 +379,7 @@ export default function KeyForm({
           <td>
             <label className="switch" title={t("keyForm.billingModeTitle")}>
               <input
+                name={`models.${key}.billing_mode`}
                 type="checkbox"
                 checked={perCall}
                 onChange={(e) => setPrice(m, "billing_mode", e.target.checked ? "per_call" : "tokens")}
@@ -376,10 +391,13 @@ export default function KeyForm({
           {perCall ? (
             <td colSpan={3}>
               <div className="form-row" style={{ marginBottom: 0 }}>
-                <label>{t("keyForm.colPerCall")}</label>
+                <label htmlFor={fieldID("per-call")}>{t("keyForm.colPerCall")}</label>
                 <input
+                  id={fieldID("per-call")}
+                  name={`models.${key}.per_call_usd`}
                   className="input"
                   type="number"
+                  inputMode="decimal"
                   min={0}
                   step="0.0001"
                   value={row.per_call_usd}
@@ -391,8 +409,11 @@ export default function KeyForm({
             <>
               <td>
                 <input
+                  name={`models.${key}.input_price_per_million`}
+                  aria-label={`${m.model} ${t("keyForm.colInput")}`}
                   className="input"
                   type="number"
+                  inputMode="decimal"
                   min={0}
                   step="0.01"
                   value={row.input_price_per_million}
@@ -401,8 +422,11 @@ export default function KeyForm({
               </td>
               <td>
                 <input
+                  name={`models.${key}.output_price_per_million`}
+                  aria-label={`${m.model} ${t("keyForm.colOutput")}`}
                   className="input"
                   type="number"
+                  inputMode="decimal"
                   min={0}
                   step="0.01"
                   value={row.output_price_per_million}
@@ -411,8 +435,11 @@ export default function KeyForm({
               </td>
               <td>
                 <input
+                  name={`models.${key}.cache_read_price_per_million`}
+                  aria-label={`${m.model} ${t("keyForm.colCacheRead")}`}
                   className="input"
                   type="number"
+                  inputMode="decimal"
                   min={0}
                   step="0.01"
                   value={row.cache_read_price_per_million}
@@ -465,37 +492,46 @@ export default function KeyForm({
         {section(t("keyForm.mobile.sectionBasic"), (
           <>
             <div className="form-row">
-              <label>{t("keyForm.idLabel")}</label>
+              <label htmlFor={`${formID}-mobile-key-id`}>{t("keyForm.idLabel")}</label>
               <input
+                id={`${formID}-mobile-key-id`}
+                name="key_id"
                 className={"input" + (idReadOnly ? " mono" : "")}
                 value={id}
                 onChange={(e) => setId(e.target.value)}
                 readOnly={idReadOnly}
+                autoComplete="off"
+                spellCheck={false}
                 placeholder={t("keyForm.idPlaceholder")}
-                autoFocus={!idReadOnly}
               />
             </div>
             <div className="form-row">
-              <label>{t("keyForm.nameLabel")}</label>
+              <label htmlFor={`${formID}-mobile-name`}>{t("keyForm.nameLabel")}</label>
               <input
+                id={`${formID}-mobile-name`}
+                name="key_name"
                 className="input"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                autoComplete="off"
                 placeholder={t("keyForm.namePlaceholder")}
               />
             </div>
             <div className="form-row kf-switch-row">
               <label className="switch">
-                <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+                <input name="enabled" type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
                 <span className="track"><span className="thumb" /></span>
                 <span>{t("keyForm.enableKey")}</span>
               </label>
             </div>
             <div className="form-row">
-              <label>{t("keyForm.rpmLabel")}</label>
+              <label htmlFor={`${formID}-mobile-rpm`}>{t("keyForm.rpmLabel")}</label>
               <input
+                id={`${formID}-mobile-rpm`}
+                name="rpm"
                 className="input"
                 type="number"
+                inputMode="numeric"
                 min={0}
                 value={rpm}
                 onChange={(e) => setRpm(parseInt(e.target.value || "0", 10) || 0)}
@@ -506,10 +542,13 @@ export default function KeyForm({
         {section(t("keyForm.mobile.sectionLimits"), (
           <>
             <div className="form-row">
-              <label>{t("keyForm.dailyLimitLabel")}</label>
+              <label htmlFor={`${formID}-mobile-daily-limit`}>{t("keyForm.dailyLimitLabel")}</label>
               <input
+                id={`${formID}-mobile-daily-limit`}
+                name="daily_limit_usd"
                 className="input"
                 type="number"
+                inputMode="decimal"
                 min={0}
                 step="0.01"
                 value={dailyLimit}
@@ -517,10 +556,13 @@ export default function KeyForm({
               />
             </div>
             <div className="form-row">
-              <label>{t("keyForm.weeklyLimitLabel")}</label>
+              <label htmlFor={`${formID}-mobile-weekly-limit`}>{t("keyForm.weeklyLimitLabel")}</label>
               <input
+                id={`${formID}-mobile-weekly-limit`}
+                name="weekly_limit_usd"
                 className="input"
                 type="number"
+                inputMode="decimal"
                 min={0}
                 step="0.01"
                 value={weeklyLimit}
@@ -532,7 +574,7 @@ export default function KeyForm({
         {section(t("keyForm.mobile.sectionAccess"), (
           <>
             <label className="switch kf-access-switch" title={t("keyForm.allowModelsTitle")}>
-              <input type="checkbox" checked={allowModels} onChange={(e) => setAllowModels(e.target.checked)} />
+              <input name="allow_models_endpoint" type="checkbox" checked={allowModels} onChange={(e) => setAllowModels(e.target.checked)} />
               <span className="track"><span className="thumb" /></span>
               <span>{t("keyForm.allowModelsLabel")}</span>
             </label>
@@ -607,41 +649,51 @@ export default function KeyForm({
       <div className="mobile-hidden">
       <div className="row2">
         <div className="form-row">
-          <label>{t("keyForm.idLabel")}</label>
+          <label htmlFor={`${formID}-desktop-key-id`}>{t("keyForm.idLabel")}</label>
           <input
+            id={`${formID}-desktop-key-id`}
+            name="key_id"
             className="input"
             value={id}
             onChange={(e) => setId(e.target.value)}
             readOnly={idReadOnly}
+            autoComplete="off"
+            spellCheck={false}
             placeholder={t("keyForm.idPlaceholder")}
-            autoFocus={!idReadOnly}
           />
         </div>
         <div className="form-row">
-          <label>{t("keyForm.nameLabel")}</label>
+          <label htmlFor={`${formID}-desktop-name`}>{t("keyForm.nameLabel")}</label>
           <input
+            id={`${formID}-desktop-name`}
+            name="key_name"
             className="input"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            autoComplete="off"
             placeholder={t("keyForm.namePlaceholder")}
           />
         </div>
       </div>
       <div className="row2">
         <div className="form-row">
-          <label>{t("keyForm.rpmLabel")}</label>
+          <label htmlFor={`${formID}-desktop-rpm`}>{t("keyForm.rpmLabel")}</label>
           <input
+            id={`${formID}-desktop-rpm`}
+            name="rpm"
             className="input"
             type="number"
+            inputMode="numeric"
             min={0}
             value={rpm}
             onChange={(e) => setRpm(parseInt(e.target.value || "0", 10) || 0)}
           />
         </div>
         <div className="form-row">
-          <label>{t("keyForm.statusLabel")}</label>
+          <span className="field-label">{t("keyForm.statusLabel")}</span>
           <label className="switch">
             <input
+              name="enabled"
               type="checkbox"
               checked={enabled}
               onChange={(e) => setEnabled(e.target.checked)}
@@ -654,10 +706,13 @@ export default function KeyForm({
 
       <div className="row2">
         <div className="form-row">
-          <label>{t("keyForm.dailyLimitLabel")}</label>
+          <label htmlFor={`${formID}-desktop-daily-limit`}>{t("keyForm.dailyLimitLabel")}</label>
           <input
+            id={`${formID}-desktop-daily-limit`}
+            name="daily_limit_usd"
             className="input"
             type="number"
+            inputMode="decimal"
             min={0}
             step="0.01"
             value={dailyLimit}
@@ -665,10 +720,13 @@ export default function KeyForm({
           />
         </div>
         <div className="form-row">
-          <label>{t("keyForm.weeklyLimitLabel")}</label>
+          <label htmlFor={`${formID}-desktop-weekly-limit`}>{t("keyForm.weeklyLimitLabel")}</label>
           <input
+            id={`${formID}-desktop-weekly-limit`}
+            name="weekly_limit_usd"
             className="input"
             type="number"
+            inputMode="decimal"
             min={0}
             step="0.01"
             value={weeklyLimit}
@@ -680,6 +738,7 @@ export default function KeyForm({
       <div className="form-row">
         <label className="switch" title={t("keyForm.allowModelsTitle")}>
           <input
+            name="allow_models_endpoint"
             type="checkbox"
             checked={allowModels}
             onChange={(e) => setAllowModels(e.target.checked)}
@@ -693,7 +752,7 @@ export default function KeyForm({
       </div>
 
       <div className="form-row">
-        <label>{t("keyForm.modelsLabel")}</label>
+        <span className="field-label">{t("keyForm.modelsLabel")}</span>
         {pickPath ? (
           <div className="model-chips-box">
             {models.length === 0 && <span className="mc-empty">{t("keyForm.modelsEmpty")}</span>}
@@ -722,7 +781,7 @@ export default function KeyForm({
         <div className="form-row" style={{ marginTop: 8 }}>
           <div className="price-section-head">
             <div>
-              <label>{t("keyForm.priceLabel")}</label>
+              <span className="field-label">{t("keyForm.priceLabel")}</span>
               <p>{t("keyForm.syncPriceHint")}</p>
             </div>
             <button type="button" className="btn sync-price-btn" disabled={syncingPrices} onClick={() => void syncPrices()}>

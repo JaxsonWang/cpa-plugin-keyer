@@ -74,7 +74,7 @@ function TopNav() {
           <Link to="/keys" className={"tn-link" + (onKeys && !onNew ? " active" : "")}><NavIcon name="keys" />{t("header.keyList")}</Link>
           <Link to="/keys/new" className={"tn-link" + (onNew ? " active" : "")}><NavIcon name="new" />{t("header.newKey")}</Link>
         </div>
-        <div className="tn-version">KEYER · v0.7.7</div>
+        <div className="tn-version">KEYER · v0.7.8</div>
       </div>
     </header>
   );
@@ -163,8 +163,9 @@ function Shell() {
   }
   return (
     <div className={`app${embedded ? " is-embedded" : ""}`}>
+      <a className="skip-link" href="#keyer-main">{t("header.skipToContent")}</a>
       {!embedded && <TopNav />}
-      <main className="workspace">
+      <main id="keyer-main" className="workspace" tabIndex={-1}>
         {!embedded && <WorkspaceHeader />}
         <div className="workspace-content">
           <SectionNav />

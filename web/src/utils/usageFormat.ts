@@ -15,6 +15,19 @@ export function formatUSD(value: number): string {
   return `$${normalized.toFixed(1)}`;
 }
 
+export function formatRequestUSD(value: number): string {
+  const normalized = Number.isFinite(value) ? value : 0;
+  if (normalized === 0) return "$0";
+  const absolute = Math.abs(normalized);
+  const fractionDigits = absolute >= 1 ? 2 : absolute >= 0.001 ? 4 : 6;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(normalized);
+}
+
 export function formatSummaryUSD(value: number): string {
   return formatUSD(value);
 }
@@ -39,6 +52,11 @@ export function cacheRateValue(totals: Pick<UsageTotals, "cache_read_tokens" | "
 export function formatPercent(value: number): string {
   if (!Number.isFinite(value)) return "—";
   return `${(value * 100).toFixed(1)}%`;
+}
+
+export function formatPercentValue(value: number, fractionDigits = 2): string {
+  if (!Number.isFinite(value)) return "—";
+  return `${value.toFixed(fractionDigits)}%`;
 }
 
 export function averagePerMinute(value: number, from: string, to: string): number {
@@ -72,6 +90,33 @@ export function isUnrecordedDimension(value: string | undefined): boolean {
 
 export function formatDimensionName(value: string | undefined, unrecordedLabel: string): string {
   return isUnrecordedDimension(value) ? unrecordedLabel : value!.trim();
+}
+
+export function formatMappedDimensionName(
+  value: string | undefined,
+  unrecordedLabel: string,
+  labels: Readonly<Record<string, string>>,
+): string {
+  const normalized = formatDimensionName(value, unrecordedLabel);
+  return labels[normalized.toLowerCase()] ?? normalized;
+}
+
+export function formatAuthIndex(value: string | undefined): string {
+  const normalized = value?.trim() ?? "";
+  if (!normalized) return "";
+  return normalized.length > 8 ? `…${normalized.slice(-4)}` : normalized;
+}
+
+export function formatExecutorName(
+  value: string | undefined,
+  unrecordedLabel: string,
+  codexExecutorLabel: string,
+): string {
+  const normalized = formatDimensionName(value, unrecordedLabel);
+  const lookup = normalized.toLowerCase().replace(/[\s_-]+/g, "");
+  return lookup === "codex" || lookup === "codexexecutor"
+    ? codexExecutorLabel
+    : normalized;
 }
 
 export function tokensPerSecond(outputTokens: number, latencyMS: number, ttftMS?: number): number | undefined {

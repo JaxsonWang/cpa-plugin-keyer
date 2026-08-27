@@ -5,7 +5,7 @@
     "newKey": "新建 Key",
     "connected": "已連線",
     "workspaceKicker": "存取控制工作台",
-    "runtimeReady": "運作正常"
+    "skipToContent": "跳到主要內容"
   },
   "login": {
     "subTitle": "登入 CLIProxyAPI",
@@ -169,7 +169,8 @@
     "warning": "⚠ 這是明文 key，僅顯示一次，關閉後無法再次檢視，請立即儲存。",
     "copy": "複製",
     "saved": "我已儲存，關閉",
-    "copied": "已複製"
+    "copied": "已複製",
+    "copyFailed": "複製失敗，請手動選取上方 Key 複製。"
   },
   "usage": {
     "today": "今日",
@@ -205,6 +206,9 @@
     "loadFailed": "統計資料載入失敗",
     "noData": "所選範圍內暫無資料",
     "unrecorded": "未記錄",
+    "executorLabels": {
+      "codex": "Codex 執行器"
+    },
     "unrecordedHint": "舊請求事件沒有採集這些執行欄位，新請求會逐步補齊。",
     "eventsCount": "共 {{count}} 筆請求事件",
     "previous": "上一頁",
@@ -300,13 +304,31 @@
       "statusCode": "HTTP 狀態碼",
       "allStatusCodes": "全部狀態碼",
       "performance": "效能",
-      "cache": "快取"
+      "cache": "快取",
+      "details": "詳情",
+      "hideDetails": "收起",
+      "toggleDetails": "查看請求 #{{id}} 詳情",
+      "collapseDetails": "收起請求 #{{id}} 詳情"
     },
     "dashboard": {
       "activity": "用量分析",
       "activityHint": "趨勢、構成與分布使用同一篩選範圍即時彙總。"
     },
-    "noLatencyData": "所選範圍內暫無有效延遲樣本"
+    "noLatencyData": "所選範圍內暫無有效延遲樣本",
+    "runtimeLabels": {
+      "apikey": "API Key",
+      "oauth": "OAuth",
+      "openaiResponses": "OpenAI Responses",
+      "priority": "優先級",
+      "flex": "彈性",
+      "defaultTier": "標準",
+      "xhigh": "極高",
+      "high": "高",
+      "medium": "中",
+      "low": "低",
+      "minimal": "最低",
+      "none": "無"
+    }
   },
   "keyUsage": {
     "title": "Key 用量詳情",

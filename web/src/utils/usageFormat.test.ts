@@ -3,10 +3,15 @@ import {
   averagePerMinute,
   cacheRate,
   costPerMillion,
+  formatAuthIndex,
   formatCount,
   formatDimensionName,
   formatDuration,
+  formatExecutorName,
+  formatMappedDimensionName,
+  formatPercentValue,
   formatRate,
+  formatRequestUSD,
   formatSummaryUSD,
   formatUSD,
   tokensPerSecond,
@@ -33,6 +38,18 @@ describe("usage formatting", () => {
     expect(formatSummaryUSD(0.004)).toBe("$0.0");
   });
 
+  it("keeps request-level micro-costs readable", () => {
+    expect(formatRequestUSD(1.234)).toBe("$1.23");
+    expect(formatRequestUSD(0.02)).toBe("$0.0200");
+    expect(formatRequestUSD(0.002)).toBe("$0.0020");
+    expect(formatRequestUSD(0)).toBe("$0");
+  });
+
+  it("limits percentage values to the requested precision", () => {
+    expect(formatPercentValue(96.23226524113257)).toBe("96.23%");
+    expect(formatPercentValue(Number.NaN)).toBe("—");
+  });
+
   it("formats duration and derives generation throughput from post-TTFT time", () => {
     expect(formatDuration(undefined)).toBe("—");
     expect(formatDuration(0)).toBe("—");
@@ -47,5 +64,19 @@ describe("usage formatting", () => {
     expect(formatDimensionName(" UNKNOWN ", "未记录")).toBe("未记录");
     expect(formatDimensionName("", "未记录")).toBe("未记录");
     expect(formatDimensionName("CodexExecutor", "未记录")).toBe("CodexExecutor");
+  });
+
+  it("converts CPA's Codex executor identifiers into a readable localized label", () => {
+    expect(formatExecutorName("CodexExecutor", "未记录", "Codex 执行器")).toBe("Codex 执行器");
+    expect(formatExecutorName("codex", "未记录", "Codex 执行器")).toBe("Codex 执行器");
+    expect(formatExecutorName("unknown", "未记录", "Codex 执行器")).toBe("未记录");
+    expect(formatExecutorName("CustomExecutor", "未记录", "Codex 执行器")).toBe("CustomExecutor");
+  });
+
+  it("maps runtime labels and shortens long auth indexes for display", () => {
+    expect(formatMappedDimensionName("apikey", "未记录", { apikey: "API Key" })).toBe("API Key");
+    expect(formatMappedDimensionName("custom", "未记录", { apikey: "API Key" })).toBe("custom");
+    expect(formatAuthIndex("d6af8b11c29a84b8")).toBe("…84b8");
+    expect(formatAuthIndex("2")).toBe("2");
   });
 });

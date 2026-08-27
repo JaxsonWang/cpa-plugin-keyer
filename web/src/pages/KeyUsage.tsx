@@ -3,7 +3,6 @@ import { Link, useParams } from "react-router-dom";
 import { fetchKeyUsage } from "../api/keys";
 import type { KeyUsageResponse, ModelUsageEntry, UsageWindow } from "../types";
 import { useT } from "../i18n";
-import { MobileTabBar } from "./KeyList";
 
 // Window switch for the per-model breakdown table: each model row has its own
 // daily and rolling-weekly window, and the user toggles which one all rows
@@ -258,11 +257,6 @@ export default function KeyUsage() {
         </div>
       </div>
 
-      <MobileTabBar
-        active="usage"
-        showUsage
-        usagePath={`/keys/${encodeURIComponent(data.key_id)}/usage`}
-      />
     </div>
   );
 }

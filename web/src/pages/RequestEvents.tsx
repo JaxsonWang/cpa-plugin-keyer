@@ -1,9 +1,20 @@
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { fetchUsageEvents } from "../api/usage";
 import UsageControls from "../components/UsageControls";
 import { useT } from "../i18n";
-import type { UsageEvent, UsageEventsResponse, UsageRange } from "../types";
-import { formatCount, formatDuration, formatRate, formatUSD, tokensPerSecond } from "../utils/usageFormat";
+import type { UsageEvent, UsageEventsResponse } from "../types";
+import {
+  formatAuthIndex,
+  formatCount,
+  formatDuration,
+  formatExecutorName,
+  formatMappedDimensionName,
+  formatRate,
+  formatRequestUSD,
+  tokensPerSecond,
+} from "../utils/usageFormat";
+import { patchSearchParams, readPositivePage, readUsageRange } from "../utils/usageSearchParams";
 
 function messageOf(error: unknown, fallback: string): string {
   const typed = error as { response?: { data?: { error?: { message?: string } } }; message?: string };
@@ -21,11 +32,42 @@ function usageEventStats(event: UsageEvent) {
 
 export default function RequestEvents() {
   const t = useT();
-  const [range, setRange] = useState<UsageRange>("7d");
-  const [keyID, setKeyID] = useState("");
-  const [provider, setProvider] = useState("");
-  const [result, setResult] = useState<"" | "success" | "failed">("");
-  const [page, setPage] = useState(1);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const range = readUsageRange(searchParams);
+  const keyID = searchParams.get("key_id") ?? "";
+  const provider = searchParams.get("provider") ?? "";
+  const resultParam = searchParams.get("result");
+  const result: "" | "success" | "failed" = resultParam === "success" || resultParam === "failed" ? resultParam : "";
+  const page = readPositivePage(searchParams);
+  const executorLabel = (value?: string) => formatExecutorName(
+    value,
+    t("usage.unrecorded"),
+    t("usage.executorLabels.codex"),
+  );
+  const runtimeLabels = {
+    apikey: t("usage.runtimeLabels.apikey"),
+    oauth: t("usage.runtimeLabels.oauth"),
+    "openai-responses": t("usage.runtimeLabels.openaiResponses"),
+    priority: t("usage.runtimeLabels.priority"),
+    flex: t("usage.runtimeLabels.flex"),
+    default: t("usage.runtimeLabels.defaultTier"),
+    xhigh: t("usage.runtimeLabels.xhigh"),
+    high: t("usage.runtimeLabels.high"),
+    medium: t("usage.runtimeLabels.medium"),
+    low: t("usage.runtimeLabels.low"),
+    minimal: t("usage.runtimeLabels.minimal"),
+    none: t("usage.runtimeLabels.none"),
+  };
+  const runtimeLabel = (value?: string) => formatMappedDimensionName(value, t("usage.unrecorded"), runtimeLabels);
+  const authReference = (event: UsageEvent) => [
+    event.auth_type ? runtimeLabel(event.auth_type) : "",
+    formatAuthIndex(event.auth_index),
+  ].filter(Boolean).join(" · ") || "—";
+  const executionReference = (event: UsageEvent) => [
+    event.executor_type ? executorLabel(event.executor_type) : "",
+    authReference(event),
+  ].filter((value) => value && value !== "—").join(" · ") || "—";
+  const [expandedEventID, setExpandedEventID] = useState<number | null>(null);
   const [data, setData] = useState<UsageEventsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -53,9 +95,8 @@ export default function RequestEvents() {
     void load();
   }, [load]);
 
-  const changeFilter = (setter: (value: string) => void, value: string) => {
-    setPage(1);
-    setter(value);
+  const updateQuery = (values: Readonly<Record<string, string | number | undefined>>) => {
+    setSearchParams(patchSearchParams(searchParams, values), { replace: true });
   };
 
   return (
@@ -77,20 +118,20 @@ export default function RequestEvents() {
         keyID={keyID}
         filters={data?.filters}
         disabled={loading}
-        onRangeChange={(value) => { setPage(1); setRange(value); }}
-        onKeyChange={(value) => changeFilter(setKeyID, value)}
+        onRangeChange={(value) => updateQuery({ range: value, page: undefined })}
+        onKeyChange={(value) => updateQuery({ key_id: value, page: undefined })}
         onRefresh={() => void load()}
       >
         <label>
           <span>{t("usage.provider")}</span>
-          <select aria-label={t("usage.provider")} value={provider} disabled={loading} onChange={(event) => changeFilter(setProvider, event.target.value)}>
+          <select aria-label={t("usage.provider")} value={provider} disabled={loading} onChange={(event) => updateQuery({ provider: event.target.value, page: undefined })}>
             <option value="">{t("usage.allProviders")}</option>
             {(data?.filters.providers ?? []).map((value) => <option key={value} value={value}>{value}</option>)}
           </select>
         </label>
         <label>
           <span>{t("usage.result")}</span>
-          <select aria-label={t("usage.result")} value={result} disabled={loading} onChange={(event) => { setPage(1); setResult(event.target.value as typeof result); }}>
+          <select aria-label={t("usage.result")} value={result} disabled={loading} onChange={(event) => updateQuery({ result: event.target.value, page: undefined })}>
             <option value="">{t("usage.allResults")}</option>
             <option value="success">{t("usage.success")}</option>
             <option value="failed">{t("usage.failed")}</option>
@@ -109,134 +150,89 @@ export default function RequestEvents() {
                   <th>{t("usage.events.keyID")}</th>
                   <th>{t("usage.events.source")}</th>
                   <th>{t("usage.events.model")}</th>
-                  <th>{t("usage.events.executor")}</th>
+                  <th className="event-reasoning-effort">{t("usage.events.reasoningEffort")}</th>
                   <th>{t("usage.events.result")}</th>
                   <th>{t("usage.events.performance")}</th>
-                  <th>{t("usage.events.billing")}</th>
-                  <th className="num">{t("usage.stats.input")}</th>
-                  <th className="num">{t("usage.stats.output")}</th>
-                  <th className="event-reasoning-effort">{t("usage.events.reasoningEffort")}</th>
-                  <th className="num">{t("usage.stats.cacheRead")}</th>
-                  <th className="num">{t("usage.events.cache")}</th>
-                  <th className="num">{t("usage.events.tokens")}</th>
                   <th className="num">{t("usage.events.cost")}</th>
+                  <th aria-label={t("usage.events.details")} />
                 </tr>
               </thead>
               <tbody>
                 {data.events.map((event) => {
                   const { cached, cacheRate, speedTPS } = usageEventStats(event);
+                  const expanded = expandedEventID === event.id;
                   return (
-                    <tr key={event.id}>
-                      <td className="event-time"><strong>{new Date(event.timestamp).toLocaleString()}</strong><small>#{event.id}</small></td>
-                      <td><code className="event-key-id">{event.key_id}</code></td>
-                      <td className="event-source">
-                        <code>{event.key_preview || "—"}</code>
-                        <small>{event.provider || "—"}</small>
-                        {event.source && <small>{event.source}</small>}
-                      </td>
-                      <td className="event-model">
-                        <strong>{event.model}</strong>
-                        {event.upstream_model && event.upstream_model !== event.model && <small>{t("usage.events.upstream")}: {event.upstream_model}</small>}
-                      </td>
-                      <td className="event-execution">
-                        <strong>{event.executor_type || "—"}</strong>
-                        <small>{[event.auth_type, event.auth_index].filter(Boolean).join(" · ") || "—"}</small>
-                      </td>
-                      <td className="event-result-cell">
-                        <span className={`event-result ${event.failed ? "failed" : "success"}`}><i />{event.failed ? t("usage.failed") : t("usage.success")}</span>
-                        {event.status_code ? <small>HTTP {event.status_code}</small> : null}
-                      </td>
-                      <td className="event-performance">
-                        <strong>{formatDuration(event.latency_ms)}</strong>
-                        <small>TTFT {formatDuration(event.ttft_ms)} · {speedTPS === undefined ? "—" : `${formatRate(speedTPS)} TPS`}</small>
-                      </td>
-                      <td className="event-billing"><span className="billing-badge">{event.billing_mode === "per_call" ? t("usage.events.perCall") : t("usage.events.byToken")}</span><small>{event.service_tier || "—"}</small></td>
-                      <td className="num mono">{formatCount(event.input_tokens)}</td>
-                      <td className="num mono">{formatCount(event.output_tokens)}</td>
-                      <td className="event-reasoning-effort">{event.reasoning_effort || "—"}</td>
-                      <td className="num mono">{formatCount(cached)}</td>
-                      <td
-                        className="num mono event-cache"
-                        title={event.cache_creation_tokens ? undefined : t("usage.events.cacheCreationUnavailable")}
-                      >
-                        <strong>{cacheRate}</strong>
-                        <small>R {formatCount(cached)} · W {event.cache_creation_tokens ? formatCount(event.cache_creation_tokens) : "—"}</small>
-                      </td>
-                      <td className="num mono event-total-token">{formatCount(event.total_tokens)}</td>
-                      <td className="num mono">{event.cost_available ? formatUSD(event.cost_usd) : "—"}</td>
-                    </tr>
+                    <Fragment key={event.id}>
+                      <tr>
+                        <td className="event-time"><strong>{new Date(event.timestamp).toLocaleString()}</strong><small>#{event.id}</small></td>
+                        <td><code className="event-key-id">{event.key_id}</code></td>
+                        <td className="event-source">
+                          <code>{event.key_preview || "—"}</code>
+                          <small>{event.provider || "—"}</small>
+                          {event.source && <small>{runtimeLabel(event.source)}</small>}
+                        </td>
+                        <td className="event-model">
+                          <strong>{event.model}</strong>
+                          {event.upstream_model && event.upstream_model !== event.model && <small>{t("usage.events.upstream")}: {event.upstream_model}</small>}
+                        </td>
+                        <td className="event-reasoning-effort">{event.reasoning_effort ? runtimeLabel(event.reasoning_effort) : "—"}</td>
+                        <td className="event-result-cell">
+                          <span className={`event-result ${event.failed ? "failed" : "success"}`}><i />{event.failed ? t("usage.failed") : t("usage.success")}</span>
+                          {event.status_code ? <small>HTTP {event.status_code}</small> : null}
+                        </td>
+                        <td className="event-performance">
+                          <strong>{formatDuration(event.latency_ms)}</strong>
+                          <small>TTFT {formatDuration(event.ttft_ms)} · {speedTPS === undefined ? "—" : `${formatRate(speedTPS)} TPS`}</small>
+                        </td>
+                        <td className="num mono event-cost">{event.cost_available ? formatRequestUSD(event.cost_usd) : "—"}</td>
+                        <td className="event-detail-action">
+                          <button
+                            className="btn sm"
+                            type="button"
+                            aria-expanded={expanded}
+                            aria-controls={`event-details-${event.id}`}
+                            aria-label={t(expanded ? "usage.events.collapseDetails" : "usage.events.toggleDetails", { id: event.id })}
+                            onClick={() => setExpandedEventID(expanded ? null : event.id)}
+                          >
+                            {t(expanded ? "usage.events.hideDetails" : "usage.events.details")}
+                          </button>
+                        </td>
+                      </tr>
+                      {expanded && (
+                        <tr id={`event-details-${event.id}`} className="event-details-row">
+                          <td colSpan={9}>
+                            <dl className="event-detail-grid">
+                              <div><dt>{t("usage.events.billing")}</dt><dd>{event.billing_mode === "per_call" ? t("usage.events.perCall") : t("usage.events.byToken")}</dd></div>
+                              <div title={event.auth_index}>
+                                <dt>{t("usage.events.executor")}</dt>
+                                <dd>{executionReference(event)}</dd>
+                              </div>
+                              <div><dt>{t("usage.events.serviceTier")}</dt><dd>{event.service_tier ? runtimeLabel(event.service_tier) : "—"}</dd></div>
+                              <div><dt>{t("usage.stats.input")}</dt><dd>{formatCount(event.input_tokens)}</dd></div>
+                              <div><dt>{t("usage.stats.output")}</dt><dd>{formatCount(event.output_tokens)}</dd></div>
+                              <div><dt>{t("usage.stats.reasoning")}</dt><dd>{formatCount(event.reasoning_tokens ?? 0)}</dd></div>
+                              <div><dt>{t("usage.stats.cacheRead")}</dt><dd>{formatCount(cached)} · {cacheRate}</dd></div>
+                              <div title={event.cache_creation_tokens ? undefined : t("usage.events.cacheCreationUnavailable")}><dt>{t("usage.stats.cacheCreation")}</dt><dd>{event.cache_creation_tokens ? formatCount(event.cache_creation_tokens) : "—"}</dd></div>
+                              <div><dt>{t("usage.events.tokens")}</dt><dd>{formatCount(event.total_tokens)}</dd></div>
+                              <div><dt>{t("usage.analysis.uncachedInput")}</dt><dd>{formatRequestUSD(event.uncached_input_cost_usd)}</dd></div>
+                              <div><dt>{t("usage.analysis.cacheReadCost")}</dt><dd>{formatRequestUSD(event.cache_read_cost_usd)}</dd></div>
+                              <div><dt>{t("usage.analysis.outputCost")}</dt><dd>{formatRequestUSD(event.output_cost_usd)}</dd></div>
+                            </dl>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
-                {data.events.length === 0 && <tr><td colSpan={15} className="events-empty muted">{t("usage.noData")}</td></tr>}
+                {data.events.length === 0 && <tr><td colSpan={9} className="events-empty muted">{t("usage.noData")}</td></tr>}
               </tbody>
             </table>
           </div>
-          <div className="events-mobile-list mobile-only">
-            {data.events.map((event) => {
-              const { cached, cacheRate, speedTPS } = usageEventStats(event);
-              return (
-                <article className="event-mobile-card" key={event.id}>
-                  <header>
-                    <div className="event-mobile-time">
-                      <strong>{new Date(event.timestamp).toLocaleString()}</strong>
-                      <small>#{event.id}</small>
-                    </div>
-                    <span className={`event-result ${event.failed ? "failed" : "success"}`}>
-                      <i />{event.failed ? t("usage.failed") : t("usage.success")}
-                    </span>
-                  </header>
-                  <div className="event-mobile-model">
-                    <strong>{event.model}</strong>
-                    {event.upstream_model && event.upstream_model !== event.model && (
-                      <small>{t("usage.events.upstream")}: {event.upstream_model}</small>
-                    )}
-                  </div>
-                  <div className="event-mobile-identity">
-                    <div>
-                      <span>{t("usage.events.keyID")}</span>
-                      <code>{event.key_id}</code>
-                    </div>
-                    <div className="event-source">
-                      <span>{t("usage.events.source")}</span>
-                      <code>{event.key_preview || "—"}</code>
-                      <small>{event.provider || "—"}</small>
-                      {event.source && <small>{event.source}</small>}
-                    </div>
-                  </div>
-                  <dl className="event-mobile-stats">
-                    <div><dt>{t("usage.stats.input")}</dt><dd>{formatCount(event.input_tokens)}</dd></div>
-                    <div><dt>{t("usage.stats.output")}</dt><dd>{formatCount(event.output_tokens)}</dd></div>
-                    <div><dt>{t("usage.events.reasoningEffort")}</dt><dd>{event.reasoning_effort || "—"}</dd></div>
-                    <div><dt>{t("usage.stats.cacheRead")}</dt><dd>{formatCount(cached)} · {cacheRate}</dd></div>
-                    <div title={event.cache_creation_tokens ? undefined : t("usage.events.cacheCreationUnavailable")}>
-                      <dt>{t("usage.stats.cacheCreation")}</dt>
-                      <dd>{event.cache_creation_tokens ? formatCount(event.cache_creation_tokens) : "—"}</dd>
-                    </div>
-                    <div><dt>{t("usage.events.tokens")}</dt><dd>{formatCount(event.total_tokens)}</dd></div>
-                    <div><dt>{t("usage.stats.latency")}</dt><dd>{formatDuration(event.latency_ms)}</dd></div>
-                    <div><dt>{t("usage.stats.ttft")}</dt><dd>{formatDuration(event.ttft_ms)}</dd></div>
-                    <div><dt>TPS</dt><dd>{speedTPS === undefined ? "—" : formatRate(speedTPS)}</dd></div>
-                  </dl>
-                  <div className="event-mobile-runtime">
-                    <span>{event.executor_type || "—"}</span>
-                    <span>{[event.auth_type, event.auth_index].filter(Boolean).join(" · ") || "—"}</span>
-                    <span>{event.service_tier || "—"}</span>
-                    {event.status_code ? <span>HTTP {event.status_code}</span> : null}
-                  </div>
-                  <footer>
-                    <span className="billing-badge">{event.billing_mode === "per_call" ? t("usage.events.perCall") : t("usage.events.byToken")}</span>
-                    <strong>{event.cost_available ? formatUSD(event.cost_usd) : "—"}</strong>
-                  </footer>
-                </article>
-              );
-            })}
-            {data.events.length === 0 && <div className="event-mobile-empty muted">{t("usage.noData")}</div>}
-          </div>
           {data.total_pages > 1 && (
             <div className="events-pagination">
-              <button className="btn sm" disabled={loading || page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>{t("usage.previous")}</button>
+              <button className="btn sm" disabled={loading || page <= 1} onClick={() => updateQuery({ page: Math.max(1, page - 1) })}>{t("usage.previous")}</button>
               <span>{t("usage.page", { page: data.page, total: data.total_pages })}</span>
-              <button className="btn sm" disabled={loading || page >= data.total_pages} onClick={() => setPage((value) => value + 1)}>{t("usage.next")}</button>
+              <button className="btn sm" disabled={loading || page >= data.total_pages} onClick={() => updateQuery({ page: page + 1 })}>{t("usage.next")}</button>
             </div>
           )}
         </>

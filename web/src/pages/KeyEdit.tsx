@@ -5,7 +5,7 @@ import type { KeyFormValues, KeyPublic, ModelRule } from "../types";
 import KeyForm from "../components/KeyForm";
 import PlainKeyModal from "../components/PlainKeyModal";
 import ConfirmDialog from "../components/ConfirmDialog";
-import { MobileFormHeader, MobileTabBar } from "./KeyList";
+import { MobileFormHeader } from "./KeyList";
 import { useT } from "../i18n";
 import { clearKeyDraft, readKeyDraft, writeKeyDraft } from "../store/keyDraft";
 
@@ -169,7 +169,6 @@ export default function KeyEdit() {
         onCancel={() => setPendingAction(null)}
         onConfirm={() => void confirmPendingAction()}
       />
-      <MobileTabBar active="keys" />
     </div>
   );
 }

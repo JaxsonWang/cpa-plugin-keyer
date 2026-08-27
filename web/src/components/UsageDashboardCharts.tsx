@@ -8,7 +8,13 @@ import type {
   UsageTotals,
   UsageTrendPoint,
 } from "../types";
-import { cacheRateValue, formatCount, formatDuration, formatUSD } from "../utils/usageFormat";
+import {
+  cacheRateValue,
+  formatCount,
+  formatDuration,
+  formatPercentValue,
+  formatUSD,
+} from "../utils/usageFormat";
 import EChart, { type ChartPalette } from "./EChart";
 
 interface TrendChartProps {
@@ -45,6 +51,20 @@ function axisStyle(palette: ChartPalette) {
   };
 }
 
+function tooltipStyle(palette: ChartPalette) {
+  return {
+    backgroundColor: palette.panel,
+    borderColor: palette.border,
+    borderWidth: 1,
+    padding: [8, 10],
+    textStyle: {
+      color: palette.text,
+      fontFamily: '"Source Sans 3", system-ui, sans-serif',
+      fontSize: 11,
+    },
+  };
+}
+
 function timeSeries(points: UsageTrendPoint[], field: keyof UsageTrendPoint): Array<[string, number]> {
   return points.map((point) => [point.bucket, Number(point[field] ?? 0)]);
 }
@@ -75,6 +95,7 @@ export function ActivityChart({ points, granularity = "hour" }: TrendChartProps)
       textStyle: { color: palette.muted, fontSize: 10 },
     },
     tooltip: {
+      ...tooltipStyle(palette),
       trigger: "axis",
       confine: true,
       renderMode: "richText",
@@ -141,6 +162,7 @@ export function LatencyTrendChart({ points }: TrendChartProps) {
     grid: { left: 10, right: 10, top: 46, bottom: 10, outerBoundsMode: "same", outerBoundsContain: "axisLabel" },
     legend: { top: 6, right: 6, itemHeight: 8, itemWidth: 16, textStyle: { color: palette.muted, fontSize: 10 } },
     tooltip: {
+      ...tooltipStyle(palette),
       trigger: "axis",
       confine: true,
       renderMode: "richText",
@@ -188,7 +210,7 @@ export function CacheEfficiencyChart({ points }: TrendChartProps) {
     color: [palette.accentStrong, palette.warn, palette.ok],
     grid: { left: 10, right: 10, top: 48, bottom: 10, outerBoundsMode: "same", outerBoundsContain: "axisLabel" },
     legend: { top: 5, right: 5, itemHeight: 8, itemWidth: 14, textStyle: { color: palette.muted, fontSize: 10 } },
-    tooltip: { trigger: "axis", confine: true, renderMode: "richText" },
+    tooltip: { ...tooltipStyle(palette), trigger: "axis", confine: true, renderMode: "richText" },
     xAxis: { ...axisStyle(palette), type: "time", splitLine: { show: false } },
     yAxis: [
       { ...axisStyle(palette), type: "value", axisLabel: { color: palette.muted, fontSize: 10, formatter: timeLabel } },
@@ -202,6 +224,7 @@ export function CacheEfficiencyChart({ points }: TrendChartProps) {
         type: "line",
         yAxisIndex: 1,
         data: points.map((point) => [point.bucket, (cacheRateValue(point) ?? 0) * 100]),
+        tooltip: { valueFormatter: (value: unknown) => formatPercentValue(Number(value)) },
         showSymbol: false,
         smooth: 0.22,
         lineStyle: { width: 2 },
@@ -233,6 +256,7 @@ export function TokenCompositionChart({ points }: TrendChartProps) {
       textStyle: { color: palette.muted, fontSize: 10 },
     },
     tooltip: {
+      ...tooltipStyle(palette),
       trigger: "axis",
       confine: true,
       renderMode: "richText",
@@ -269,7 +293,7 @@ export function ModelShareChart({ rows }: BreakdownChartProps) {
       itemWidth: 10,
       textStyle: { color: palette.muted, fontSize: 9 },
     },
-    tooltip: { trigger: "item", confine: true, renderMode: "richText", formatter: "{b}\n{c} Token · {d}%" },
+    tooltip: { ...tooltipStyle(palette), trigger: "item", confine: true, renderMode: "richText", formatter: "{b}\n{c} Token · {d}%" },
     series: [{
       type: "pie",
       radius: ["54%", "78%"],
@@ -295,6 +319,7 @@ export function KeyUsageChart({ rows }: BreakdownChartProps) {
     color: [palette.accentStrong],
     grid: { left: 8, right: 12, top: 8, bottom: 8, outerBoundsMode: "same", outerBoundsContain: "axisLabel" },
     tooltip: {
+      ...tooltipStyle(palette),
       trigger: "axis",
       axisPointer: { type: "shadow" },
       confine: true,
@@ -342,7 +367,7 @@ export function ProviderShareChart({ rows }: BreakdownChartProps) {
       itemWidth: 10,
       textStyle: { color: palette.muted, fontSize: 9 },
     },
-    tooltip: { trigger: "item", confine: true, renderMode: "richText", formatter: "{b}\n{c} · {d}%" },
+    tooltip: { ...tooltipStyle(palette), trigger: "item", confine: true, renderMode: "richText", formatter: "{b}\n{c} · {d}%" },
     series: [{
       type: "pie",
       radius: ["48%", "72%"],
@@ -374,6 +399,7 @@ export function CostBreakdownChart({ totals }: { totals: UsageTotals }) {
     color: [palette.accentStrong, palette.ok, palette.warn, palette.danger, palette.muted],
     legend: { type: "scroll", bottom: 2, left: "center", itemHeight: 8, itemWidth: 10, textStyle: { color: palette.muted, fontSize: 9 } },
     tooltip: {
+      ...tooltipStyle(palette),
       trigger: "item",
       confine: true,
       renderMode: "richText",
@@ -428,6 +454,7 @@ export function UsageHeatmapChart({ cells }: { cells: UsageHeatmapCell[] }) {
     ...baseOption(palette),
     grid: { left: 8, right: 18, top: 12, bottom: 58, outerBoundsMode: "same", outerBoundsContain: "axisLabel" },
     tooltip: {
+      ...tooltipStyle(palette),
       trigger: "item",
       confine: true,
       renderMode: "richText",
@@ -481,6 +508,7 @@ export function LatencyScatterChart({ points }: { points: UsageLatencyPoint[] })
     color: [palette.accentStrong],
     grid: { left: 10, right: 12, top: 12, bottom: 12, outerBoundsMode: "same", outerBoundsContain: "axisLabel" },
     tooltip: {
+      ...tooltipStyle(palette),
       trigger: "item",
       confine: true,
       renderMode: "richText",
@@ -526,7 +554,7 @@ export function DimensionShareChart({ rows, ariaLabel }: BreakdownChartProps & {
     ...baseOption(palette),
     color: [palette.accentStrong],
     grid: { left: 8, right: 12, top: 8, bottom: 8, outerBoundsMode: "same", outerBoundsContain: "axisLabel" },
-    tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, confine: true, renderMode: "richText", valueFormatter: (value: unknown) => formatCount(Number(value)) },
+    tooltip: { ...tooltipStyle(palette), trigger: "axis", axisPointer: { type: "shadow" }, confine: true, renderMode: "richText", valueFormatter: (value: unknown) => formatCount(Number(value)) },
     xAxis: { ...axisStyle(palette), type: "value", axisLabel: { color: palette.muted, fontSize: 9, formatter: timeLabel } },
     yAxis: {
       ...axisStyle(palette),

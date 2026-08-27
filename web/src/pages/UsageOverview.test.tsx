@@ -1,5 +1,6 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { _resetLocale } from "../i18n";
 
@@ -10,7 +11,9 @@ vi.mock("../components/UsageDashboardCharts", () => ({
   ActivityChart: () => <div data-testid="activity-chart" />,
   CacheEfficiencyChart: () => <div data-testid="cache-efficiency-chart" />,
   CostBreakdownChart: () => <div data-testid="cost-breakdown-chart" />,
-  DimensionShareChart: ({ ariaLabel }: { ariaLabel: string }) => <div data-testid={`dimension-share-${ariaLabel}`} />,
+  DimensionShareChart: ({ ariaLabel, rows }: { ariaLabel: string; rows: Array<{ name: string }> }) => (
+    <div data-testid={`dimension-share-${ariaLabel}`}>{rows.map((row) => row.name).join(" · ")}</div>
+  ),
   KeyUsageChart: () => <div data-testid="key-usage-chart" />,
   LatencyScatterChart: () => <div data-testid="latency-scatter-chart" />,
   LatencyTrendChart: () => <div data-testid="latency-trend-chart" />,
@@ -100,7 +103,7 @@ describe("UsageOverview", () => {
       by_model: [breakdown],
       by_key: [{ ...breakdown, name: "team-a" }],
       by_provider: [{ ...breakdown, name: "codex" }],
-      by_executor: [{ ...breakdown, name: "unknown" }],
+      by_executor: [{ ...breakdown, name: "CodexExecutor" }],
       by_auth_type: [{ ...breakdown, name: "unknown" }],
       by_source: [{ ...breakdown, name: "unknown" }],
       by_service_tier: [{ ...breakdown, name: "unknown" }],
@@ -114,7 +117,7 @@ describe("UsageOverview", () => {
     });
     await act(async () => {
       root = createRoot(container);
-      root.render(<UsageOverview />);
+      root.render(<MemoryRouter><UsageOverview /></MemoryRouter>);
       await tick();
     });
 
@@ -133,15 +136,18 @@ describe("UsageOverview", () => {
     expect(container.textContent).toContain("P95 首字延迟");
     expect(container.querySelector('[data-testid="activity-chart"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="latency-trend-chart"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="latency-scatter-chart"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="latency-scatter-chart"]')).toBeNull();
     expect(container.querySelector('[data-testid="cost-breakdown-chart"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="cache-efficiency-chart"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="usage-heatmap-chart"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="usage-heatmap-chart"]')).toBeNull();
     expect(container.querySelector('[data-testid="token-composition-chart"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="model-share-chart"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="provider-share-chart"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="key-usage-chart"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="model-share-chart"]')).toBeNull();
+    expect(container.querySelector('[data-testid="provider-share-chart"]')).toBeNull();
+    expect(container.querySelector('[data-testid="key-usage-chart"]')).toBeNull();
+    expect(container.querySelectorAll(".single-dimension-summary").length).toBeGreaterThanOrEqual(6);
     expect(container.textContent).not.toContain("unknown");
+    expect(container.textContent).not.toContain("CodexExecutor");
+    expect(container.textContent).toContain("Codex 执行器");
     expect(container.textContent).toContain("未记录");
     expect(container.textContent).toContain("旧请求事件没有采集这些运行字段");
   });

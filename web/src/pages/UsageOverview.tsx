@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { fetchUsageAnalysis, fetchUsageOverview } from "../api/usage";
 import UsageControls from "../components/UsageControls";
 import {
@@ -15,22 +16,31 @@ import {
   UsageHeatmapChart,
 } from "../components/UsageDashboardCharts";
 import { useT } from "../i18n";
-import type { UsageAnalysisResponse, UsageOverviewResponse, UsageRange } from "../types";
+import type {
+  UsageAnalysisResponse,
+  UsageBreakdown,
+  UsageHeatmapCell,
+  UsageLatencyPoint,
+  UsageOverviewResponse,
+} from "../types";
 import {
   averagePerMinute,
   cacheRate,
   cacheRateValue,
   costPerMillion,
   formatCount,
-  formatDimensionName,
   formatDuration,
+  formatExecutorName,
+  formatMappedDimensionName,
   formatPercent,
   formatRate,
+  formatRequestUSD,
   formatSummaryUSD,
   formatUSD,
   isUnrecordedDimension,
   successRate,
 } from "../utils/usageFormat";
+import { patchSearchParams, readUsageRange } from "../utils/usageSearchParams";
 
 interface DashboardData {
   analysis: UsageAnalysisResponse;
@@ -49,6 +59,46 @@ function DashboardSkeleton() {
         {Array.from({ length: 8 }, (_, index) => <span key={index} className={index < 2 ? "wide" : ""} />)}
       </div>
       <div className="dashboard-skeleton-charts"><span /><span /><span /></div>
+    </div>
+  );
+}
+
+function CompactBreakdown({ row }: { row: UsageBreakdown }) {
+  const t = useT();
+  return (
+    <div className="single-dimension-summary">
+      <div className="single-dimension-name"><strong title={row.name}>{row.name}</strong></div>
+      <dl>
+        <div><dt>{t("usage.stats.requests")}</dt><dd>{formatCount(row.request_count)}</dd></div>
+        <div><dt>{t("usage.stats.tokens")}</dt><dd>{formatCount(row.total_tokens)}</dd></div>
+        <div><dt>{t("usage.stats.cost")}</dt><dd>{formatSummaryUSD(row.cost_usd)}</dd></div>
+      </dl>
+    </div>
+  );
+}
+
+function CompactHeatmap({ cell }: { cell: UsageHeatmapCell }) {
+  const t = useT();
+  return (
+    <div className="single-dimension-summary heatmap-summary">
+      <div className="single-dimension-name"><strong title={cell.key_id}>{cell.key_id}</strong><span>{cell.model}</span></div>
+      <dl>
+        <div><dt>{t("usage.stats.requests")}</dt><dd>{formatCount(cell.request_count)}</dd></div>
+        <div><dt>{t("usage.stats.tokens")}</dt><dd>{formatCount(cell.total_tokens)}</dd></div>
+        <div><dt>{t("usage.stats.cost")}</dt><dd>{formatSummaryUSD(cell.cost_usd)}</dd></div>
+      </dl>
+    </div>
+  );
+}
+
+function CompactLatency({ point }: { point: UsageLatencyPoint }) {
+  const t = useT();
+  return (
+    <div className="single-dimension-summary latency-summary">
+      <dl>
+        <div><dt>{t("usage.stats.ttft")}</dt><dd>{formatDuration(point.ttft_ms)}</dd></div>
+        <div><dt>{t("usage.stats.latency")}</dt><dd>{formatDuration(point.latency_ms)}</dd></div>
+      </dl>
     </div>
   );
 }
@@ -81,7 +131,7 @@ function ModelEfficiency({ data }: { data: UsageAnalysisResponse }) {
                 <td>{successRate(row)}</td>
                 <td>{formatCount(row.total_tokens)}</td>
                 <td>{formatUSD(row.cost_usd)}</td>
-                <td>{row.request_count ? formatUSD(row.cost_usd / row.request_count) : "—"}</td>
+                <td>{row.request_count ? formatRequestUSD(row.cost_usd / row.request_count) : "—"}</td>
                 <td>{row.request_count ? formatCount(row.output_tokens / row.request_count) : "—"}</td>
                 <td>{formatPercent(cacheRateValue(row) ?? Number.NaN)}</td>
               </tr>
@@ -96,8 +146,9 @@ function ModelEfficiency({ data }: { data: UsageAnalysisResponse }) {
 
 export default function UsageOverview() {
   const t = useT();
-  const [range, setRange] = useState<UsageRange>("7d");
-  const [keyID, setKeyID] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const range = readUsageRange(searchParams);
+  const keyID = searchParams.get("key_id") ?? "";
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -131,6 +182,16 @@ export default function UsageOverview() {
   const tpm = overview && totals ? averagePerMinute(totals.total_tokens, overview.from, overview.to) : 0;
   const performance = overview?.performance;
   const unrecordedLabel = t("usage.unrecorded");
+  const codexExecutorLabel = t("usage.executorLabels.codex");
+  const runtimeLabels = {
+    apikey: t("usage.runtimeLabels.apikey"),
+    oauth: t("usage.runtimeLabels.oauth"),
+    "openai-responses": t("usage.runtimeLabels.openaiResponses"),
+    priority: t("usage.runtimeLabels.priority"),
+    flex: t("usage.runtimeLabels.flex"),
+    default: t("usage.runtimeLabels.defaultTier"),
+  };
+  const runtimeLabel = (value?: string) => formatMappedDimensionName(value, unrecordedLabel, runtimeLabels);
   const runtimeDimensionRows = analysis ? [
     ...analysis.by_executor,
     ...analysis.by_auth_type,
@@ -140,8 +201,19 @@ export default function UsageOverview() {
   const hasUnrecordedRuntimeDimensions = runtimeDimensionRows.some((row) => isUnrecordedDimension(row.name));
   const labelDimensionRows = (rows: typeof runtimeDimensionRows) => rows.map((row) => ({
     ...row,
-    name: formatDimensionName(row.name, unrecordedLabel),
+    name: runtimeLabel(row.name),
   }));
+  const executorRows = analysis?.by_executor.map((row) => ({
+    ...row,
+    name: formatExecutorName(row.name, unrecordedLabel, codexExecutorLabel),
+  })) ?? [];
+  const providerRows = analysis?.by_provider.map((row) => ({ ...row, name: runtimeLabel(row.name) })) ?? [];
+  const authRows = analysis ? labelDimensionRows(analysis.by_auth_type) : [];
+  const sourceRows = analysis ? labelDimensionRows(analysis.by_source) : [];
+  const serviceTierRows = analysis ? labelDimensionRows(analysis.by_service_tier) : [];
+  const updateQuery = (values: Readonly<Record<string, string | number | undefined>>) => {
+    setSearchParams(patchSearchParams(searchParams, values), { replace: true });
+  };
 
   return (
     <div className="usage-page dashboard-page">
@@ -156,8 +228,8 @@ export default function UsageOverview() {
           keyID={keyID}
           filters={overview?.filters}
           disabled={loading}
-          onRangeChange={setRange}
-          onKeyChange={setKeyID}
+          onRangeChange={(value) => updateQuery({ range: value })}
+          onKeyChange={(value) => updateQuery({ key_id: value })}
           onRefresh={() => void load()}
         />
       </div>
@@ -205,7 +277,11 @@ export default function UsageOverview() {
             </section>
             <section className="dashboard-chart-card">
               <div className="dashboard-card-head"><div><h2>{t("usage.chart.modelShare")}</h2><p>{t("usage.chart.modelShareHint")}</p></div></div>
-              {analysis.by_model.length > 0 ? <ModelShareChart rows={analysis.by_model} /> : <div className="analysis-empty muted">{t("usage.noData")}</div>}
+              {analysis.by_model.length === 1
+                ? <CompactBreakdown row={analysis.by_model[0]} />
+                : analysis.by_model.length > 1
+                  ? <ModelShareChart rows={analysis.by_model} />
+                  : <div className="analysis-empty muted">{t("usage.noData")}</div>}
             </section>
 
             <section className="dashboard-chart-card dashboard-span-2">
@@ -214,7 +290,11 @@ export default function UsageOverview() {
             </section>
             <section className="dashboard-chart-card">
               <div className="dashboard-card-head"><div><h2>{t("usage.chart.latencyScatter")}</h2><p>{t("usage.chart.latencyScatterHint")}</p></div><span>{formatCount(analysis.latency_points.length)}</span></div>
-              {analysis.latency_points.length > 0 ? <LatencyScatterChart points={analysis.latency_points} /> : <div className="analysis-empty muted">{t("usage.noLatencyData")}</div>}
+              {analysis.latency_points.length === 1
+                ? <CompactLatency point={analysis.latency_points[0]} />
+                : analysis.latency_points.length > 1
+                  ? <LatencyScatterChart points={analysis.latency_points} />
+                  : <div className="analysis-empty muted">{t("usage.noLatencyData")}</div>}
             </section>
 
             <section className="dashboard-chart-card dashboard-span-2">
@@ -232,35 +312,55 @@ export default function UsageOverview() {
             </section>
             <section className="dashboard-chart-card">
               <div className="dashboard-card-head"><div><h2>{t("usage.chart.executorShare")}</h2><p>{t("usage.chart.executorShareHint")}</p></div></div>
-              {analysis.by_executor.length > 0 ? <DimensionShareChart rows={labelDimensionRows(analysis.by_executor)} ariaLabel={t("usage.chart.executorShare")} /> : <div className="analysis-empty muted">{t("usage.noData")}</div>}
+              {executorRows.length === 1
+                ? <CompactBreakdown row={executorRows[0]} />
+                : executorRows.length > 1
+                  ? <DimensionShareChart rows={executorRows} ariaLabel={t("usage.chart.executorShare")} />
+                  : <div className="analysis-empty muted">{t("usage.noData")}</div>}
             </section>
 
             <section className="dashboard-chart-card dashboard-span-2">
               <div className="dashboard-card-head"><div><h2>{t("usage.chart.heatmap")}</h2><p>{t("usage.chart.heatmapHint")}</p></div><span>{formatCount(analysis.heatmap.length)}</span></div>
-              {analysis.heatmap.length > 0 ? <UsageHeatmapChart cells={analysis.heatmap} /> : <div className="analysis-empty muted">{t("usage.noData")}</div>}
+              {analysis.heatmap.length === 1
+                ? <CompactHeatmap cell={analysis.heatmap[0]} />
+                : analysis.heatmap.length > 1
+                  ? <UsageHeatmapChart cells={analysis.heatmap} />
+                  : <div className="analysis-empty muted">{t("usage.noData")}</div>}
             </section>
             <section className="dashboard-chart-card dimension-stack-card">
               <div className="dashboard-card-head"><div><h2>{t("usage.chart.runtimeProfile")}</h2><p>{t("usage.chart.runtimeProfileHint")}</p></div></div>
               <div className="dimension-stack">
-                <div><span>{t("usage.provider")}</span><strong>{analysis.by_provider[0]?.name ?? "—"}</strong><small>{formatCount(analysis.by_provider[0]?.request_count ?? 0)} {t("usage.stats.requests")}</small></div>
-                <div><span>{t("usage.events.authType")}</span><strong>{analysis.by_auth_type[0] ? formatDimensionName(analysis.by_auth_type[0].name, unrecordedLabel) : "—"}</strong><small>{formatCount(analysis.by_auth_type[0]?.request_count ?? 0)} {t("usage.stats.requests")}</small></div>
-                <div><span>{t("usage.events.serviceTier")}</span><strong>{analysis.by_service_tier[0] ? formatDimensionName(analysis.by_service_tier[0].name, unrecordedLabel) : "—"}</strong><small>{formatCount(analysis.by_service_tier[0]?.request_count ?? 0)} {t("usage.stats.requests")}</small></div>
-                <div><span>{t("usage.events.requestSource")}</span><strong>{analysis.by_source[0] ? formatDimensionName(analysis.by_source[0].name, unrecordedLabel) : "—"}</strong><small>{formatCount(analysis.by_source[0]?.request_count ?? 0)} {t("usage.stats.requests")}</small></div>
+                <div><span>{t("usage.provider")}</span><strong>{providerRows[0]?.name ?? "—"}</strong><small>{formatCount(providerRows[0]?.request_count ?? 0)} {t("usage.stats.requests")}</small></div>
+                <div><span>{t("usage.events.authType")}</span><strong>{authRows[0]?.name ?? "—"}</strong><small>{formatCount(authRows[0]?.request_count ?? 0)} {t("usage.stats.requests")}</small></div>
+                <div><span>{t("usage.events.serviceTier")}</span><strong>{serviceTierRows[0]?.name ?? "—"}</strong><small>{formatCount(serviceTierRows[0]?.request_count ?? 0)} {t("usage.stats.requests")}</small></div>
+                <div><span>{t("usage.events.requestSource")}</span><strong>{sourceRows[0]?.name ?? "—"}</strong><small>{formatCount(sourceRows[0]?.request_count ?? 0)} {t("usage.stats.requests")}</small></div>
               </div>
               {hasUnrecordedRuntimeDimensions && <p className="dimension-data-note">{t("usage.unrecordedHint")}</p>}
             </section>
 
             <section className="dashboard-chart-card">
               <div className="dashboard-card-head"><div><h2>{t("usage.chart.keyUsage")}</h2><p>{t("usage.chart.keyUsageHint")}</p></div></div>
-              {analysis.by_key.length > 0 ? <KeyUsageChart rows={analysis.by_key} /> : <div className="analysis-empty muted">{t("usage.noData")}</div>}
+              {analysis.by_key.length === 1
+                ? <CompactBreakdown row={analysis.by_key[0]} />
+                : analysis.by_key.length > 1
+                  ? <KeyUsageChart rows={analysis.by_key} />
+                  : <div className="analysis-empty muted">{t("usage.noData")}</div>}
             </section>
             <section className="dashboard-chart-card">
               <div className="dashboard-card-head"><div><h2>{t("usage.chart.providerShare")}</h2><p>{t("usage.chart.providerShareHint")}</p></div></div>
-              {analysis.by_provider.length > 0 ? <ProviderShareChart rows={analysis.by_provider} /> : <div className="analysis-empty muted">{t("usage.noData")}</div>}
+              {providerRows.length === 1
+                ? <CompactBreakdown row={providerRows[0]} />
+                : providerRows.length > 1
+                  ? <ProviderShareChart rows={providerRows} />
+                  : <div className="analysis-empty muted">{t("usage.noData")}</div>}
             </section>
             <section className="dashboard-chart-card">
               <div className="dashboard-card-head"><div><h2>{t("usage.chart.authShare")}</h2><p>{t("usage.chart.authShareHint")}</p></div></div>
-              {analysis.by_auth_type.length > 0 ? <DimensionShareChart rows={labelDimensionRows(analysis.by_auth_type)} ariaLabel={t("usage.chart.authShare")} /> : <div className="analysis-empty muted">{t("usage.noData")}</div>}
+              {authRows.length === 1
+                ? <CompactBreakdown row={authRows[0]} />
+                : authRows.length > 1
+                  ? <DimensionShareChart rows={authRows} ariaLabel={t("usage.chart.authShare")} />
+                  : <div className="analysis-empty muted">{t("usage.noData")}</div>}
             </section>
             <ModelEfficiency data={analysis} />
           </div>

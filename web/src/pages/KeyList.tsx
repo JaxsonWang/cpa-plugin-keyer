@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { ChartLineUp, Key, Plus } from "@phosphor-icons/react";
+import { Link } from "react-router-dom";
 import {
   deleteKey,
   listKeys,
@@ -252,14 +250,12 @@ export default function KeyList() {
     <div className="key-list-page">
       <div className="mobile-only mobile-list-head">
         <div><span>Keyer</span><strong>{t("header.keyList")}</strong></div>
-        <span className="mobile-runtime"><i />{t("header.runtimeReady")}</span>
       </div>
       <div className="fp-head mobile-hidden">
         <div className="page-heading">
           <span>{t("keys.eyebrow")}</span>
           <div className="page-heading-title">
             <h1>{t("header.keyList")}</h1>
-            <span className="runtime-status"><i />{t("header.runtimeReady")}</span>
           </div>
           <p>{t("keys.pageHint")}</p>
         </div>
@@ -376,8 +372,6 @@ export default function KeyList() {
         </>
       )}
 
-      <Link to="/keys/new" className="fab" aria-label={t("keys.newKey")}>+</Link>
-      <MobileTabBar active="keys" />
 
       {plain && (
         <PlainKeyModal
@@ -593,15 +587,6 @@ function KeyCard({
   onDelete: (id: string) => void;
 }) {
   const t = useT();
-  const nav = useNavigate();
-  const ref = useRef<HTMLDivElement>(null);
-  const [dx, setDx] = useState(0);
-  const [revoking, setRevoking] = useState(false);
-  const startX = useRef(0);
-  const startY = useRef(0);
-  const dragging = useRef(false);
-  const horizontal = useRef(false);
-  const moved = useRef(false);
 
   const limit = item.usage.daily_limit_usd > 0 ? item.usage.daily_limit_usd : 0;
   const pct = limit > 0 ? Math.min(100, (item.usage.daily_usd / limit) * 100) : 0;
@@ -610,77 +595,10 @@ function KeyCard({
   const shownChips = modelNames.slice(0, 2);
   const moreCount = Math.max(0, modelNames.length - 2);
 
-  const onPointerDown = (event: React.PointerEvent) => {
-    dragging.current = true;
-    horizontal.current = false;
-    moved.current = false;
-    startX.current = event.clientX;
-    startY.current = event.clientY;
-    (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
-  };
-  const onPointerMove = (event: React.PointerEvent) => {
-    if (!dragging.current) return;
-    const deltaX = event.clientX - startX.current;
-    const deltaY = event.clientY - startY.current;
-    if (!horizontal.current && Math.abs(deltaX) > 8 && Math.abs(deltaX) > Math.abs(deltaY)) {
-      horizontal.current = true;
-    }
-    if (horizontal.current) {
-      event.preventDefault();
-      moved.current = true;
-      setDx(Math.max(-96, Math.min(0, deltaX)));
-    }
-  };
-  const onPointerUp = () => {
-    if (!dragging.current) return;
-    dragging.current = false;
-    if (horizontal.current) {
-      if (dx <= -64) {
-        setRevoking(true);
-        setDx(-88);
-      } else {
-        setDx(0);
-      }
-    }
-  };
-  const onClick = () => {
-    if (moved.current || revoking) return;
-    nav(`/keys/${encodeURIComponent(item.id)}/usage`);
-  };
-  const doRevoke = () => {
-    setDx(0);
-    setRevoking(false);
-    onDelete(item.id);
-  };
-
   return (
-    <div
-      ref={ref}
-      className={`keycard${item.enabled ? "" : " disabled"}${over ? " over" : ""}${selected ? " selected" : ""}`}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
-      onClick={onClick}
-      style={{ transform: `translateX(${dx}px)`, touchAction: "pan-y" }}
-    >
-      <div
-        className="kc-revoke"
-        style={{ opacity: revoking || dx < -8 ? 1 : 0, transition: "opacity 150ms" }}
-        onClick={(event) => {
-          event.stopPropagation();
-          if (revoking) doRevoke();
-        }}
-      >
-        <span className="revoke-icon">⊘</span>
-        <span>{t("keys.mobile.revoke")}</span>
-      </div>
+    <article className={`keycard${item.enabled ? "" : " disabled"}${over ? " over" : ""}${selected ? " selected" : ""}`}>
       <div className="kc-head">
-        <span
-          className="kc-select"
-          onClick={(event) => event.stopPropagation()}
-          onPointerDown={(event) => event.stopPropagation()}
-        >
+        <span className="kc-select">
           <SelectionCheckbox
             checked={selected}
             ariaLabel={t("keys.selectKey", { id: item.id })}
@@ -688,13 +606,12 @@ function KeyCard({
           />
         </span>
         <span className="kc-dot" />
-        <span className="kc-name">{item.name || item.id}</span>
+        <Link className="kc-name" to={`/keys/${encodeURIComponent(item.id)}/usage`}>{item.name || item.id}</Link>
         <KeyStatusSwitch
           item={item}
           updating={updating}
           onChange={(enabled) => onSetEnabled(item.id, enabled)}
         />
-        <span className="kc-chevron">›</span>
       </div>
       <div className="kc-preview">{item.key_preview}</div>
       {limit > 0 && (
@@ -718,7 +635,12 @@ function KeyCard({
           {moreCount > 0 && <span className="chip more">+{moreCount}</span>}
         </div>
       )}
-    </div>
+      <div className="kc-actions">
+        <Link className="btn sm" to={`/keys/${encodeURIComponent(item.id)}/usage`}>{t("keys.detail")}</Link>
+        <Link className="btn sm" to={`/keys/${encodeURIComponent(item.id)}/edit`}>{t("keys.edit")}</Link>
+        <button className="btn sm danger-outline" type="button" onClick={() => onDelete(item.id)}>{t("keys.delete")}</button>
+      </div>
+    </article>
   );
 }
 
@@ -731,34 +653,5 @@ export function MobileFormHeader({ title, backTo }: { title: string; backTo: str
       </Link>
       <h2 className="mfb-title">{title}</h2>
     </div>
-  );
-}
-
-export function MobileTabBar({
-  active,
-  showUsage = false,
-  usagePath = "/keys",
-}: {
-  active: "keys" | "usage" | "new";
-  showUsage?: boolean;
-  usagePath?: string;
-}) {
-  const t = useT();
-  const nav = useNavigate();
-  const tab = (id: "keys" | "usage" | "new", label: string, icon: ReactNode, target: string) => (
-    <button
-      className={`tab${active === id ? " active" : ""}`}
-      onClick={() => nav(target)}
-    >
-      <span className="tab-icon" aria-hidden="true">{icon}</span>
-      <span>{label}</span>
-    </button>
-  );
-  return (
-    <nav className={`tabbar${showUsage ? "" : " tabbar--no-usage"}`}>
-      {tab("keys", t("keys.mobile.tabKeys"), <Key size={20} weight="regular" />, "/keys")}
-      {showUsage && tab("usage", t("keys.mobile.tabUsage"), <ChartLineUp size={20} weight="regular" />, usagePath)}
-      {tab("new", t("keys.mobile.tabNew"), <Plus size={20} weight="regular" />, "/keys/new")}
-    </nav>
   );
 }

@@ -89,7 +89,11 @@ describe("KeyList", () => {
     expect(container.textContent).toContain("Key team-a");
     expect(container.textContent).toContain("Key team-b");
     expect(container.querySelector(".page-heading-title h1")?.textContent).toBe("Key 列表");
-    expect(container.querySelector(".page-heading-title .runtime-status")?.textContent).toBe("运行正常");
+    expect(container.querySelector(".runtime-status")).toBeNull();
+    expect(container.querySelector(".mobile-runtime")).toBeNull();
+    expect(container.querySelector(".tabbar")).toBeNull();
+    expect(container.querySelector(".fab")).toBeNull();
+    expect(container.querySelectorAll(".kc-actions")).toHaveLength(2);
     expect(container.querySelector(".overview-card.spend strong")?.textContent).toBe("$2.0");
     expect(container.querySelector(".key-usage-cell")?.textContent).toContain("$1.0 / $10.0");
 

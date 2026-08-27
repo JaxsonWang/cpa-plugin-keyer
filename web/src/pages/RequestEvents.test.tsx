@@ -1,5 +1,6 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { _resetLocale } from "../i18n";
 
@@ -27,13 +28,40 @@ afterEach(() => {
 });
 
 describe("RequestEvents", () => {
+  it("restores filters and pagination from the URL", async () => {
+    vi.mocked(fetchUsageEvents).mockResolvedValue({
+      events: [], total: 0, page: 2, page_size: 50, total_pages: 2,
+      filters: {
+        key_ids: ["team-a"], providers: ["codex"], models: [], executor_types: [],
+        auth_types: [], sources: [], service_tiers: [], status_codes: [],
+      },
+    });
+    await act(async () => {
+      root = createRoot(container);
+      root.render(
+        <MemoryRouter initialEntries={["/events?range=30d&key_id=team-a&provider=codex&result=failed&page=2"]}>
+          <RequestEvents />
+        </MemoryRouter>,
+      );
+      await tick();
+    });
+    expect(fetchUsageEvents).toHaveBeenCalledWith({
+      range: "30d",
+      key_id: "team-a",
+      provider: "codex",
+      result: "failed",
+      page: 2,
+      page_size: 50,
+    });
+  });
+
   it("keeps key IDs and shows the masked key source with expanded usage fields", async () => {
     vi.mocked(fetchUsageEvents).mockResolvedValue({
       events: [{
         id: 7, timestamp: "2026-08-26T10:00:00Z", key_id: "team-a", key_preview: "cpa_*****wxyz", provider: "codex",
         model: "gpt-5.4", upstream_model: "gpt-5.4-2026-08-01", failed: false,
         reasoning_effort: "xhigh",
-        executor_type: "codex", auth_type: "apikey", auth_index: "2", source: "openai-responses",
+        executor_type: "CodexExecutor", auth_type: "apikey", auth_index: "2", source: "openai-responses",
         service_tier: "priority", generate: true, latency_ms: 2_400, ttft_ms: 400, status_code: 200,
         billing_mode: "tokens", cost_available: true, cost_usd: 0.002,
         uncached_input_cost_usd: 0.0005, cache_read_cost_usd: 0.0002,
@@ -50,7 +78,7 @@ describe("RequestEvents", () => {
     });
     await act(async () => {
       root = createRoot(container);
-      root.render(<RequestEvents />);
+      root.render(<MemoryRouter><RequestEvents /></MemoryRouter>);
       await tick();
     });
     expect(container.textContent).toContain("team-a");
@@ -62,12 +90,10 @@ describe("RequestEvents", () => {
     expect(headers).toContain("Key ID");
     expect(headers).toContain("来源");
     expect(headers).toContain("推理强度");
-    expect(headers).toContain("执行与认证");
     expect(headers).toContain("性能");
     expect(container.querySelector(".page-heading-title .heading-count-tag")?.textContent).toBe("共 1 条请求事件");
     expect(container.querySelector(".events-log-heading")).toBeNull();
-    expect(container.querySelector(".events-mobile-list .event-mobile-card")?.textContent).toContain("cpa_*****wxyz");
-    expect(container.querySelector(".events-mobile-list .event-mobile-card")?.textContent).toContain("codex");
+    expect(container.querySelector(".events-mobile-list")).toBeNull();
     const filterLabels = Array.from(container.querySelectorAll(".usage-controls label > span")).map((label) => label.textContent);
     expect(filterLabels).toEqual(["时间范围", "Key ID", "供应商", "结果"]);
     expect(fetchUsageEvents).toHaveBeenCalledWith({
@@ -79,14 +105,20 @@ describe("RequestEvents", () => {
       page_size: 50,
     });
     const firstRow = Array.from(container.querySelectorAll("tbody tr:first-child td"));
-    expect(firstRow[headers.indexOf("推理强度")]?.textContent?.trim()).toBe("xhigh");
-    expect(firstRow[headers.indexOf("执行与认证")]?.textContent).toContain("codex");
-    expect(firstRow[headers.indexOf("执行与认证")]?.textContent).toContain("apikey · 2");
+    expect(firstRow[headers.indexOf("推理强度")]?.textContent?.trim()).toBe("极高");
     expect(firstRow[headers.indexOf("结果")]?.textContent).toContain("HTTP 200");
     expect(firstRow[headers.indexOf("性能")]?.textContent).toContain("2.40 s");
     expect(firstRow[headers.indexOf("性能")]?.textContent).toContain("400 ms");
-    expect(firstRow[headers.indexOf("缓存")]?.textContent).toContain("50.0%");
-    expect(firstRow[headers.indexOf("费用")]?.textContent?.trim()).toBe("$0.0");
+    expect(firstRow[headers.indexOf("费用")]?.textContent?.trim()).toBe("$0.0020");
+    const detailsButton = container.querySelector<HTMLButtonElement>('button[aria-expanded="false"]')!;
+    await act(async () => {
+      detailsButton.click();
+      await tick();
+    });
+    expect(container.querySelector(".event-detail-grid")?.textContent).toContain("500 · 50.0%");
+    expect(container.querySelector(".event-detail-grid")?.textContent).toContain("优先级");
+    expect(container.querySelector(".event-detail-grid")?.textContent).toContain("Codex 执行器 · API Key · 2");
+    expect(container.querySelector(".event-detail-grid")?.children).toHaveLength(12);
   });
 
   it("shows unavailable instead of a misleading zero when cache writes are not reported", async () => {
@@ -107,9 +139,13 @@ describe("RequestEvents", () => {
     });
     await act(async () => {
       root = createRoot(container);
-      root.render(<RequestEvents />);
+      root.render(<MemoryRouter><RequestEvents /></MemoryRouter>);
       await tick();
     });
-    expect(container.querySelector("td[title='当前 CPA 未提供独立缓存写入统计']")?.textContent).toContain("W —");
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('button[aria-expanded="false"]')!.click();
+      await tick();
+    });
+    expect(container.querySelector("[title='当前 CPA 未提供独立缓存写入统计'] dd")?.textContent).toBe("—");
   });
 });

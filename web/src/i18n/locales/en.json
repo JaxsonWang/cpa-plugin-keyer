@@ -5,7 +5,7 @@
     "newKey": "New Key",
     "connected": "Connected",
     "workspaceKicker": "Access control workspace",
-    "runtimeReady": "Runtime ready"
+    "skipToContent": "Skip to main content"
   },
   "login": {
     "subTitle": "Sign in to CLIProxyAPI",
@@ -176,7 +176,8 @@
     "warning": "⚠ This is the plaintext key. It is shown only once and cannot be viewed again after closing — save it now.",
     "copy": "Copy",
     "saved": "Saved, close",
-    "copied": "Copied"
+    "copied": "Copied",
+    "copyFailed": "Copy failed. Select the key above and copy it manually."
   },
   "usage": {
     "today": "Today",
@@ -212,6 +213,9 @@
     "loadFailed": "Failed to load usage data",
     "noData": "No data in the selected range",
     "unrecorded": "Not recorded",
+    "executorLabels": {
+      "codex": "Codex executor"
+    },
     "unrecordedHint": "Older request events did not capture these runtime fields; new requests will fill them over time.",
     "eventsCount": "{{count}} request events",
     "previous": "Previous",
@@ -307,13 +311,31 @@
       "statusCode": "HTTP status",
       "allStatusCodes": "All status codes",
       "performance": "Performance",
-      "cache": "Cache"
+      "cache": "Cache",
+      "details": "Details",
+      "hideDetails": "Hide",
+      "toggleDetails": "View request #{{id}} details",
+      "collapseDetails": "Hide request #{{id}} details"
     },
     "dashboard": {
       "activity": "Usage analysis",
       "activityHint": "Trends, composition, and distribution share the same live filter range."
     },
-    "noLatencyData": "No valid latency samples in the selected range"
+    "noLatencyData": "No valid latency samples in the selected range",
+    "runtimeLabels": {
+      "apikey": "API Key",
+      "oauth": "OAuth",
+      "openaiResponses": "OpenAI Responses",
+      "priority": "Priority",
+      "flex": "Flex",
+      "defaultTier": "Standard",
+      "xhigh": "Extra high",
+      "high": "High",
+      "medium": "Medium",
+      "low": "Low",
+      "minimal": "Minimal",
+      "none": "None"
+    }
   },
   "keyUsage": {
     "title": "Key usage detail",

@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { createKey } from "../api/keys";
 import KeyForm from "../components/KeyForm";
 import PlainKeyModal from "../components/PlainKeyModal";
-import { MobileFormHeader, MobileTabBar } from "./KeyList";
+import { MobileFormHeader } from "./KeyList";
 import { useT } from "../i18n";
 import type { KeyFormValues, ModelRule } from "../types";
 import { clearKeyDraft, readKeyDraft, writeKeyDraft } from "../store/keyDraft";
@@ -87,7 +87,6 @@ export default function KeyNew() {
           }}
         />
       )}
-      <MobileTabBar active="new" />
     </div>
   );
 }
