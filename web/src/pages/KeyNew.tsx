@@ -7,6 +7,7 @@ import { MobileFormHeader } from "./KeyList";
 import { useT } from "../i18n";
 import type { KeyFormValues, ModelRule } from "../types";
 import { clearKeyDraft, readKeyDraft, writeKeyDraft } from "../store/keyDraft";
+import { APP_VERSION } from "../version";
 
 const DRAFT_KEY = "new";
 
@@ -46,7 +47,7 @@ export default function KeyNew() {
     <div className="form-page">
       <div className="fp-head mobile-hidden">
         <div className="page-heading">
-          <span>{t("new.eyebrow")}</span>
+          <span>{t("new.eyebrow")} · v{APP_VERSION}</span>
           <h1>{title}</h1>
           <p>{t("new.pageHint")}</p>
         </div>

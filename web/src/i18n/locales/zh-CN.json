@@ -7,6 +7,11 @@
     "workspaceKicker": "访问控制工作台",
     "skipToContent": "跳到主要内容"
   },
+  "viewer": {
+    "keyDetails": "Key 详情",
+    "invalidTitle": "Key 无效或已失效",
+    "invalidHint": "请检查只读链接中的 Key 是否正确，以及该 Key 是否仍处于启用状态。"
+  },
   "login": {
     "subTitle": "登录到 CLIProxyAPI",
     "baseUrl": "CPA 地址 (Base URL)",
@@ -80,7 +85,7 @@
       "callCount": "{{n}} 次调用",
       "noLimit": "不限"
     },
-    "eyebrow": "密钥资产",
+    "eyebrow": "KEYER USAGE",
     "pageHint": "集中管理下游访问凭证、模型权限与实时用量。",
     "statTotal": "密钥总数",
     "statTotalHint": "当前策略资产",
@@ -102,7 +107,7 @@
   "new": {
     "title": "新建 Key",
     "create": "创建 Key",
-    "eyebrow": "签发凭证",
+    "eyebrow": "KEYER USAGE",
     "pageHint": "一次配置访问范围、预算与模型价格，明文密钥只显示一次。"
   },
   "keyForm": {
@@ -335,6 +340,21 @@
       "low": "低",
       "minimal": "最低",
       "none": "无"
+    },
+    "quota": {
+      "title": "Key 额度",
+      "hint": "按 Key 对比今日与本周额度使用率，悬停可查看已用、限额和超额情况。",
+      "keyCount": "共 {{count}} 个 Key",
+      "summary": "Key 额度概况",
+      "limitedKeys": "受限 Key",
+      "unlimitedKeys": "不限额 Key",
+      "exhaustedKeys": "已达额度",
+      "chartTitle": "额度使用率",
+      "chartHint": "日额度与周额度按使用百分比对比，达到 100% 后标红。",
+      "percentage": "已用 / 额度",
+      "daily": "今日额度",
+      "weekly": "本周额度",
+      "noLimits": "当前 Key 均未设置日额度或周额度"
     }
   },
   "keyUsage": {

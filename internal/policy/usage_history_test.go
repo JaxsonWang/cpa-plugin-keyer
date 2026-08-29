@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -324,6 +325,46 @@ func TestUsageHistoryOverviewAnalysisPaginationAndFilters(t *testing.T) {
 	page := mustUsageEvents(t, store, UsageHistoryFilter{}, 2, 1)
 	if page.Total != 2 || page.TotalPages != 2 || len(page.Events) != 1 || page.Events[0].InputTokens != 1_000 {
 		t.Fatalf("second event page = %+v", page)
+	}
+}
+
+func TestUsageHistoryFiltersStayInsideSelectedKey(t *testing.T) {
+	now := time.Date(2026, 8, 26, 10, 0, 0, 0, time.UTC)
+	store := newHistoryStore(t, filepath.Join(t.TempDir(), "state.db"), &now, PreviewKey("cpa_history_secret"))
+	secondHash, err := HashKey("cpa_other_secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertKey(KeyConfig{
+		ID: "team-b", Name: "Team B", Enabled: true, KeyHash: secondHash,
+		Models: []ModelRule{{Model: "claude-sonnet", InputPricePerMillion: 3}},
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+	store.RecordUsage("team-a", "gpt-5.4", "gpt-5.4", false, UsageDetail{
+		Provider: "codex", ExecutorType: "codex", AuthType: "apikey",
+		Source: "openai-responses", ServiceTier: "priority", FailureStatusCode: 200,
+	})
+	store.RecordUsage("team-b", "claude-sonnet", "claude-sonnet", true, UsageDetail{
+		Provider: "anthropic", ExecutorType: "claude", AuthType: "oauth",
+		Source: "anthropic-messages", ServiceTier: "standard", FailureStatusCode: 429,
+	})
+
+	want := UsageFilters{
+		KeyIDs: []string{"team-a"}, Providers: []string{"codex"}, Models: []string{"gpt-5.4"},
+		ExecutorTypes: []string{"codex"}, AuthTypes: []string{"apikey"},
+		Sources: []string{"openai-responses"}, ServiceTiers: []string{"priority"},
+		StatusCodes: []int{200},
+	}
+	filter := UsageHistoryFilter{Since: now.Add(-time.Hour), Until: now.Add(time.Hour), KeyID: "team-a"}
+	if got := mustUsageOverview(t, store, filter).Filters; !reflect.DeepEqual(got, want) {
+		t.Fatalf("overview filters = %+v, want %+v", got, want)
+	}
+	if got := mustUsageAnalysis(t, store, filter).Filters; !reflect.DeepEqual(got, want) {
+		t.Fatalf("analysis filters = %+v, want %+v", got, want)
+	}
+	if got := mustUsageEvents(t, store, filter, 1, 50).Filters; !reflect.DeepEqual(got, want) {
+		t.Fatalf("event filters = %+v, want %+v", got, want)
 	}
 }
 

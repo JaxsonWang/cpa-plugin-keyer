@@ -14,6 +14,7 @@ import PlainKeyModal from "../components/PlainKeyModal";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { useT } from "../i18n";
 import { formatUSD } from "../utils/usageFormat";
+import { APP_VERSION } from "../version";
 
 function errorMessage(error: unknown, fallback: string): string {
   const typed = error as {
@@ -253,7 +254,7 @@ export default function KeyList() {
       </div>
       <div className="fp-head mobile-hidden">
         <div className="page-heading">
-          <span>{t("keys.eyebrow")}</span>
+          <span>{t("keys.eyebrow")} · v{APP_VERSION}</span>
           <div className="page-heading-title">
             <h1>{t("header.keyList")}</h1>
           </div>

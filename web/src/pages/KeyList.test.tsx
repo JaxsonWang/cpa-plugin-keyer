@@ -88,6 +88,7 @@ describe("KeyList", () => {
     expect(container.querySelectorAll(".key-table tbody tr")).toHaveLength(2);
     expect(container.textContent).toContain("Key team-a");
     expect(container.textContent).toContain("Key team-b");
+    expect(container.querySelector(".page-heading > span")?.textContent).toBe("KEYER USAGE · v0.7.9");
     expect(container.querySelector(".page-heading-title h1")?.textContent).toBe("Key 列表");
     expect(container.querySelector(".runtime-status")).toBeNull();
     expect(container.querySelector(".mobile-runtime")).toBeNull();

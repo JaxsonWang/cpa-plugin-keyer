@@ -82,6 +82,7 @@ describe("RequestEvents", () => {
       await tick();
     });
     expect(container.textContent).toContain("team-a");
+    expect(container.querySelector(".page-heading > span")?.textContent).toBe("KEYER USAGE · v0.7.9");
     expect(container.textContent).toContain("cpa_*****wxyz");
     expect(container.textContent).toContain("codex");
     expect(container.textContent).toContain("实际模型: gpt-5.4-2026-08-01");

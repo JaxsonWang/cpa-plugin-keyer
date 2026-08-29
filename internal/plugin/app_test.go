@@ -524,8 +524,8 @@ func TestRegistrationUsesCpaKeyerIdentity(t *testing.T) {
 	if PluginID != "cpa-keyer" || registration.Metadata.Name != "Keyer" {
 		t.Fatalf("plugin identity = %q / %q, want cpa-keyer / Keyer", PluginID, registration.Metadata.Name)
 	}
-	if registration.Metadata.Version != "0.7.8" {
-		t.Fatalf("plugin version = %q, want 0.7.8", registration.Metadata.Version)
+	if registration.Metadata.Version != "0.7.9" {
+		t.Fatalf("plugin version = %q, want 0.7.9", registration.Metadata.Version)
 	}
 	if registration.Metadata.GitHubRepository != "https://github.com/JaxsonWang/cpa-plugin-keyer" {
 		t.Fatalf("repository = %q", registration.Metadata.GitHubRepository)
@@ -536,8 +536,168 @@ func TestManagementResourceUsesKeyerDisplayName(t *testing.T) {
 	app := NewApp()
 	t.Cleanup(app.Shutdown)
 	resources := app.managementRegistration().Resources
-	if len(resources) != 1 || resources[0].Menu != "Keyer" {
+	if len(resources) != 6 || resources[0].Menu != "Keyer" {
 		t.Fatalf("management resources = %+v, want Keyer menu", resources)
+	}
+	wanted := map[string]bool{
+		viewerKeyPath: false, viewerKeyUsagePath: false,
+		viewerUsageOverviewPath: false, viewerUsageAnalysisPath: false,
+		viewerUsageEventsPath: false,
+	}
+	for _, resource := range resources[1:] {
+		if resource.Menu != "" {
+			t.Fatalf("viewer resource unexpectedly creates a menu: %+v", resource)
+		}
+		if _, exists := wanted[resource.Path]; exists {
+			wanted[resource.Path] = true
+		}
+	}
+	for path, found := range wanted {
+		if !found {
+			t.Fatalf("viewer resource not registered: %s", path)
+		}
+	}
+}
+
+func TestViewerResourcesAuthenticateAndIsolateCurrentKey(t *testing.T) {
+	app, plain := configureTestApp(t, 60)
+	otherPlain := "cpa_plugin_other"
+	otherHash, err := policy.HashKey(otherPlain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Store().UpsertKey(policy.KeyConfig{
+		ID: "team-b", Name: "Team B", Enabled: true, KeyHash: otherHash,
+		KeyPreview: policy.PreviewKey(otherPlain), RPM: 30,
+		Models:        []policy.ModelRule{{Model: "claude-sonnet", BillingMode: "tokens", InputPricePerMillion: 3}},
+		DailyLimitUSD: 25, WeeklyLimitUSD: 100,
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+	app.Store().RecordUsage("team-a", "gpt-5.4", "gpt-5.4", false, policy.UsageDetail{
+		Provider: "codex", ExecutorType: "codex", AuthType: "apikey",
+		Source: "openai-responses", ServiceTier: "priority", InputTokens: 1_000,
+	})
+	app.Store().RecordUsage("team-b", "claude-sonnet", "claude-sonnet", true, policy.UsageDetail{
+		Provider: "anthropic", ExecutorType: "claude", AuthType: "oauth",
+		Source: "anthropic-messages", ServiceTier: "standard", FailureStatusCode: 429,
+	})
+
+	callViewer := func(path string, query map[string][]string) ManagementResponse {
+		t.Helper()
+		request, _ := json.Marshal(ManagementRequest{
+			Method: http.MethodGet, Path: "/v0/resource/plugins/cpa-keyer" + path,
+			Headers: pluginHeaders(plain), Query: query,
+		})
+		raw, err := app.HandleMethod(MethodManagementHandle, request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := decodeResult[ManagementResponse](t, raw)
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("viewer response = %+v, body = %s", response, response.Body)
+		}
+		return response
+	}
+
+	keyResponse := callViewer(viewerKeyPath, nil)
+	var keyPayload struct {
+		Keys []publicKey `json:"keys"`
+	}
+	if err := json.Unmarshal(keyResponse.Body, &keyPayload); err != nil {
+		t.Fatal(err)
+	}
+	if len(keyPayload.Keys) != 1 || keyPayload.Keys[0].ID != "team-a" || strings.Contains(string(keyResponse.Body), "team-b") {
+		t.Fatalf("viewer key payload = %s", keyResponse.Body)
+	}
+
+	usageResponse := callViewer(viewerKeyUsagePath, map[string][]string{"id": {"team-b"}})
+	var usagePayload struct {
+		KeyID string `json:"key_id"`
+	}
+	if err := json.Unmarshal(usageResponse.Body, &usagePayload); err != nil {
+		t.Fatal(err)
+	}
+	if usagePayload.KeyID != "team-a" {
+		t.Fatalf("viewer usage key = %q, want team-a", usagePayload.KeyID)
+	}
+
+	query := map[string][]string{"range": {"90d"}, "key_id": {"team-b"}}
+	overviewResponse := callViewer(viewerUsageOverviewPath, query)
+	var overview policy.UsageOverview
+	if err := json.Unmarshal(overviewResponse.Body, &overview); err != nil {
+		t.Fatal(err)
+	}
+	if overview.Totals.RequestCount != 1 || len(overview.Filters.KeyIDs) != 1 || overview.Filters.KeyIDs[0] != "team-a" || strings.Contains(string(overviewResponse.Body), "anthropic") {
+		t.Fatalf("viewer overview escaped key scope: %s", overviewResponse.Body)
+	}
+
+	analysisResponse := callViewer(viewerUsageAnalysisPath, query)
+	var analysis policy.UsageAnalysis
+	if err := json.Unmarshal(analysisResponse.Body, &analysis); err != nil {
+		t.Fatal(err)
+	}
+	if len(analysis.ByKey) != 1 || analysis.ByKey[0].Name != "team-a" || strings.Contains(string(analysisResponse.Body), "team-b") || strings.Contains(string(analysisResponse.Body), "claude-sonnet") {
+		t.Fatalf("viewer analysis escaped key scope: %s", analysisResponse.Body)
+	}
+
+	eventsResponse := callViewer(viewerUsageEventsPath, query)
+	var events policy.UsageEventPage
+	if err := json.Unmarshal(eventsResponse.Body, &events); err != nil {
+		t.Fatal(err)
+	}
+	if events.Total != 1 || len(events.Events) != 1 || events.Events[0].KeyID != "team-a" || strings.Contains(string(eventsResponse.Body), "team-b") {
+		t.Fatalf("viewer events escaped key scope: %s", eventsResponse.Body)
+	}
+}
+
+func TestViewerResourcesUseUniformUnauthorizedResponse(t *testing.T) {
+	app, plain := configureTestApp(t, 60)
+	call := func(key string) ManagementResponse {
+		t.Helper()
+		request, _ := json.Marshal(ManagementRequest{
+			Method:  http.MethodGet,
+			Path:    "/v0/resource/plugins/cpa-keyer" + viewerKeyPath,
+			Headers: pluginHeaders(key),
+		})
+		raw, err := app.HandleMethod(MethodManagementHandle, request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return decodeResult[ManagementResponse](t, raw)
+	}
+
+	unknown := call("cpa_unknown")
+	key := app.Store().Keys()[0]
+	key.Enabled = false
+	if err := app.Store().UpsertKey(key, true); err != nil {
+		t.Fatal(err)
+	}
+	disabled := call(plain)
+	if unknown.StatusCode != http.StatusUnauthorized || disabled.StatusCode != http.StatusUnauthorized || string(unknown.Body) != string(disabled.Body) {
+		t.Fatalf("viewer auth responses differ: unknown=%+v disabled=%+v", unknown, disabled)
+	}
+}
+
+func TestViewerResourcesDoNotExposeWriteRoutes(t *testing.T) {
+	app, plain := configureTestApp(t, 60)
+	for _, resource := range app.managementRegistration().Resources {
+		if strings.Contains(resource.Path, "rotate") || strings.Contains(resource.Path, "reset") || strings.Contains(resource.Path, "edit") {
+			t.Fatalf("write-like viewer resource registered: %+v", resource)
+		}
+	}
+	request, _ := json.Marshal(ManagementRequest{
+		Method:  http.MethodPost,
+		Path:    "/v0/resource/plugins/cpa-keyer" + viewerKeyPath,
+		Headers: pluginHeaders(plain),
+	})
+	raw, err := app.HandleMethod(MethodManagementHandle, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := decodeResult[ManagementResponse](t, raw)
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("viewer write response = %+v, want 404", response)
 	}
 }
 

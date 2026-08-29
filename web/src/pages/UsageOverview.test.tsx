@@ -3,10 +3,13 @@ import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { _resetLocale } from "../i18n";
+import { clearSession, setViewerSession } from "../store/session";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock("../api/usage", () => ({ fetchUsageAnalysis: vi.fn(), fetchUsageOverview: vi.fn() }));
+vi.mock("../api/keys", () => ({ listKeys: vi.fn() }));
+vi.mock("../components/KeyQuotaChart", () => ({ default: () => <div data-testid="key-quota-chart" /> }));
 vi.mock("../components/UsageDashboardCharts", () => ({
   ActivityChart: () => <div data-testid="activity-chart" />,
   CacheEfficiencyChart: () => <div data-testid="cache-efficiency-chart" />,
@@ -24,6 +27,7 @@ vi.mock("../components/UsageDashboardCharts", () => ({
 }));
 
 import { fetchUsageAnalysis, fetchUsageOverview } from "../api/usage";
+import { listKeys } from "../api/keys";
 import UsageOverview from "./UsageOverview";
 
 let container: HTMLDivElement;
@@ -38,12 +42,25 @@ beforeEach(() => {
 
 afterEach(() => {
   act(() => root.unmount());
+  clearSession();
   container.remove();
   vi.clearAllMocks();
 });
 
 describe("UsageOverview", () => {
-  it("renders the merged dashboard from overview and analysis data", async () => {
+  it("renders the quota dashboard for management and hides it for viewer sessions", async () => {
+    vi.mocked(listKeys).mockResolvedValue([
+      {
+        id: "team-a", name: "Team A", enabled: true, key_preview: "cpa_…demo", rpm: 60, models: [],
+        daily_limit_usd: 100, weekly_limit_usd: 500,
+        usage: { daily_usd: 75, weekly_usd: 520, daily_limit_usd: 100, weekly_limit_usd: 500 },
+      },
+      {
+        id: "team-b", name: "Team B", enabled: true, key_preview: "cpa_…demo", rpm: 60, models: [],
+        daily_limit_usd: 0, weekly_limit_usd: 0,
+        usage: { daily_usd: 5, weekly_usd: 20, daily_limit_usd: 0, weekly_limit_usd: 0 },
+      },
+    ]);
     vi.mocked(fetchUsageOverview).mockResolvedValue({
       from: "2026-08-25T10:00:00Z",
       to: "2026-08-26T10:00:00Z",
@@ -123,7 +140,9 @@ describe("UsageOverview", () => {
 
     expect(fetchUsageOverview).toHaveBeenCalledWith({ range: "7d", key_id: "" });
     expect(fetchUsageAnalysis).toHaveBeenCalledWith({ range: "7d", key_id: "" });
+    expect(listKeys).toHaveBeenCalledOnce();
     expect(container.querySelector("h1")?.textContent).toBe("概览");
+    expect(container.querySelector(".page-heading > span")?.textContent).toBe("KEYER USAGE · v0.7.9");
     expect(container.querySelectorAll(".dashboard-kpi")).toHaveLength(8);
     expect(container.textContent).toContain("请求与 Token 趋势");
     expect(container.textContent).toContain("Token 构成趋势");
@@ -134,6 +153,16 @@ describe("UsageOverview", () => {
     expect(container.textContent).toContain("$429.3");
     expect(container.textContent).toContain("P95 总延迟");
     expect(container.textContent).toContain("P95 首字延迟");
+    expect(container.textContent).toContain("Key 额度");
+    expect(container.textContent).toContain("受限 Key");
+    expect(container.textContent).toContain("不限额 Key");
+    expect(container.textContent).toContain("已达额度");
+    expect(container.querySelector('[data-testid="key-quota-chart"]')).not.toBeNull();
+    const quotaSection = container.querySelector(".key-quota-layout");
+    const usageHeading = Array.from(container.querySelectorAll(".usage-section-head h2")).find((node) => node.textContent === "用量分析");
+    expect(quotaSection).not.toBeNull();
+    expect(usageHeading).toBeDefined();
+    expect(quotaSection!.compareDocumentPosition(usageHeading!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(container.querySelector('[data-testid="activity-chart"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="latency-trend-chart"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="latency-scatter-chart"]')).toBeNull();
@@ -150,5 +179,19 @@ describe("UsageOverview", () => {
     expect(container.textContent).toContain("Codex 执行器");
     expect(container.textContent).toContain("未记录");
     expect(container.textContent).toContain("旧请求事件没有采集这些运行字段");
+
+    act(() => root.unmount());
+    setViewerSession("https://cpa.example.com", "cpa_viewer", "direct");
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<MemoryRouter><UsageOverview /></MemoryRouter>);
+      await tick();
+    });
+
+    expect(container.textContent).not.toContain("Key 额度");
+    expect(container.textContent).not.toContain("受限 Key");
+    expect(container.querySelector(".key-quota-layout")).toBeNull();
+    expect(container.querySelector('[data-testid="key-quota-chart"]')).toBeNull();
+    expect(container.textContent).toContain("用量分析");
   });
 });

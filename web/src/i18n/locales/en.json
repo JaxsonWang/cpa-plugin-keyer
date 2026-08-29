@@ -7,6 +7,11 @@
     "workspaceKicker": "Access control workspace",
     "skipToContent": "Skip to main content"
   },
+  "viewer": {
+    "keyDetails": "Key details",
+    "invalidTitle": "Key is invalid or inactive",
+    "invalidHint": "Check that the key in the read-only link is correct and still enabled."
+  },
   "login": {
     "subTitle": "Sign in to CLIProxyAPI",
     "baseUrl": "CPA Base URL",
@@ -80,7 +85,7 @@
       "callCount": "{{n}} calls",
       "noLimit": "unlimited"
     },
-    "eyebrow": "Key inventory",
+    "eyebrow": "KEYER USAGE",
     "pageHint": "Manage downstream credentials, model access, and live usage from one workspace.",
     "statTotal": "Total keys",
     "statTotalHint": "Current policy inventory",
@@ -102,7 +107,7 @@
   "new": {
     "title": "New Key",
     "create": "Create key",
-    "eyebrow": "Issue credential",
+    "eyebrow": "KEYER USAGE",
     "pageHint": "Configure access, budgets, and model pricing once. The plaintext key is shown once."
   },
   "keyForm": {
@@ -335,6 +340,21 @@
       "low": "Low",
       "minimal": "Minimal",
       "none": "None"
+    },
+    "quota": {
+      "title": "Key quotas",
+      "hint": "Compare daily and weekly quota utilization by key; hover for usage, limits, and overages.",
+      "keyCount": "{{count}} keys",
+      "summary": "Key quota summary",
+      "limitedKeys": "Limited keys",
+      "unlimitedKeys": "Unlimited keys",
+      "exhaustedKeys": "At quota",
+      "chartTitle": "Quota utilization",
+      "chartHint": "Compare daily and weekly utilization; bars turn red at 100%.",
+      "percentage": "Used / limit",
+      "daily": "Daily quota",
+      "weekly": "Weekly quota",
+      "noLimits": "No daily or weekly quota is set for the current keys"
     }
   },
   "keyUsage": {

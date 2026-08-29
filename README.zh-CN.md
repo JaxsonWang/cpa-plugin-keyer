@@ -10,6 +10,13 @@
 | **协议** | MIT |
 | **English** | [README.md](./README.md) |
 
+## v0.7.9 Key 独立只读视图
+
+Keyer 根路径默认进入概览，概览页在用量分析上方展示各 Key 的每日与每周额度使用率。
+独立 Key Viewer 不经过 `management.html`，也不要求输入 CPA management secret；它只
+显示当前 Key 的详情、概览和请求事件，并由后端强制隔离为当前认证 Key。独立 Viewer
+隐藏管理连接地址和跨 Key 额度图表，管理模式中的这些内容保持不变。
+
 ## v0.7.7 筛选精简与导航图标
 
 请求事件筛选仅保留时间范围、Key ID、供应商和结果。导航图标在浅色与暗色主题下均保持
@@ -224,6 +231,22 @@ http://HOST:PORT/v0/resource/plugins/cpa-keyer/index.html
 ```
 
 使用 CPA management secret 登录。网页提供 Key 管理、真实模型选择、models.dev 价格同步、预算/RPM、按模型用量、概览图表、分析与请求事件；管理密钥只保存在内存，不写 `localStorage`。
+
+### Key 详情独立访问
+
+不输入 CPA management secret、也不暴露 `management.html` 入口时，可以直接使用当前
+Key 打开只读页面：
+
+```text
+https://HOST:8317/v0/resource/plugins/cpa-keyer/index.html#/key/<KEY>
+```
+
+该地址把 Key 作为 bearer credential 验证，只允许查看当前 Key 的“Key 详情”“概览”和
+“请求事件”。Viewer 不提供新增、编辑、删除、轮换、启停、重置额度、重置 RPM 或跨 Key
+访问；页面内导航会继续保留 `/key/<KEY>` 范围，包括 `/overview` 和 `/events`。
+
+Key 只保存在 URL fragment 和浏览器内存，不写入 `localStorage`。完整地址仍应按密钥处理，
+因为获得该 Key 的人可以使用它已经拥有的下游访问权限。
 
 开发模式：
 

@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { fetchKeyUsage } from "../api/keys";
 import type { KeyUsageResponse, ModelUsageEntry, UsageWindow } from "../types";
 import { useT } from "../i18n";
+import { isViewerSession, getSession } from "../store/session";
 
 // Window switch for the per-model breakdown table: each model row has its own
 // daily and rolling-weekly window, and the user toggles which one all rows
@@ -41,9 +42,14 @@ function BillingTag({ mode }: { mode?: string }) {
   );
 }
 
-export default function KeyUsage() {
+interface KeyUsageProps {
+  viewerKeyID?: string;
+}
+
+export default function KeyUsage({ viewerKeyID = "" }: KeyUsageProps) {
   const { id } = useParams<{ id: string }>();
   const t = useT();
+  const viewer = isViewerSession(getSession());
   const [data, setData] = useState<KeyUsageResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -55,7 +61,7 @@ export default function KeyUsage() {
       setLoading(true);
       setError("");
       try {
-        const keyId = decodeURIComponent(id ?? "");
+        const keyId = viewerKeyID || decodeURIComponent(id ?? "");
         if (!keyId) {
           setError(t("keyUsage.notFound"));
           return;
@@ -72,7 +78,7 @@ export default function KeyUsage() {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, viewerKeyID]);
 
   if (loading) return <div className="muted">{t("keyUsage.loading")}</div>;
   if (error || !data) return <div className="error">{error || t("keyUsage.notFound")}</div>;
@@ -96,17 +102,17 @@ export default function KeyUsage() {
       {/* Header: back · key id (mono) · name · daily/weekly toggle */}
       <div className="keyusage-header">
         <div className="keyusage-idline">
-          <Link to="/keys">
+          {!viewer && <Link to="/keys">
             <button className="btn sm">{t("keyUsage.back")}</button>
-          </Link>
+          </Link>}
           <span className="mono keyusage-id">{data.key_id}</span>
           <span className="muted">{data.key_name}</span>
-          <Link
+          {!viewer && <Link
             to={`/keys/${encodeURIComponent(data.key_id)}/edit`}
             className="mobile-only keyusage-edit-link"
           >
             <button type="button" className="btn sm">{t("keys.edit")}</button>
-          </Link>
+          </Link>}
         </div>
         <div className="seg" role="tablist" aria-label={t("keyUsage.windowToggle")}>
           <button

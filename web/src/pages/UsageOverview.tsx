@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { fetchUsageAnalysis, fetchUsageOverview } from "../api/usage";
+import { listKeys } from "../api/keys";
+import KeyQuotaChart from "../components/KeyQuotaChart";
 import UsageControls from "../components/UsageControls";
 import {
   ActivityChart,
@@ -22,6 +24,7 @@ import type {
   UsageHeatmapCell,
   UsageLatencyPoint,
   UsageOverviewResponse,
+  KeyPublic,
 } from "../types";
 import {
   averagePerMinute,
@@ -41,9 +44,12 @@ import {
   successRate,
 } from "../utils/usageFormat";
 import { patchSearchParams, readUsageRange } from "../utils/usageSearchParams";
+import { getSession, isViewerSession } from "../store/session";
+import { APP_VERSION } from "../version";
 
 interface DashboardData {
   analysis: UsageAnalysisResponse;
+  keys: KeyPublic[];
   overview: UsageOverviewResponse;
 }
 
@@ -146,6 +152,7 @@ function ModelEfficiency({ data }: { data: UsageAnalysisResponse }) {
 
 export default function UsageOverview() {
   const t = useT();
+  const viewer = isViewerSession(getSession());
   const [searchParams, setSearchParams] = useSearchParams();
   const range = readUsageRange(searchParams);
   const keyID = searchParams.get("key_id") ?? "";
@@ -158,11 +165,12 @@ export default function UsageOverview() {
     setError("");
     try {
       const query = { range, key_id: keyID };
-      const [overview, analysis] = await Promise.all([
+      const [overview, analysis, keys] = await Promise.all([
         fetchUsageOverview(query),
         fetchUsageAnalysis(query),
+        listKeys(),
       ]);
-      setData({ overview, analysis });
+      setData({ overview, analysis, keys });
     } catch (cause) {
       setError(messageOf(cause, t("usage.loadFailed")));
     } finally {
@@ -176,6 +184,7 @@ export default function UsageOverview() {
 
   const overview = data?.overview;
   const analysis = data?.analysis;
+  const keys = data?.keys ?? [];
   const totals = overview?.totals;
   const cacheTokens = totals ? Math.max(totals.cache_read_tokens, totals.cached_tokens) : 0;
   const rpm = overview && totals ? averagePerMinute(totals.request_count, overview.from, overview.to) : 0;
@@ -214,12 +223,18 @@ export default function UsageOverview() {
   const updateQuery = (values: Readonly<Record<string, string | number | undefined>>) => {
     setSearchParams(patchSearchParams(searchParams, values), { replace: true });
   };
+  const visibleKeys = keyID ? keys.filter((key) => key.id === keyID) : keys;
+  const limitedKeys = visibleKeys.filter((key) => key.daily_limit_usd > 0 || key.weekly_limit_usd > 0);
+  const overQuotaKeys = limitedKeys.filter((key) => (
+    (key.daily_limit_usd > 0 && key.usage.daily_usd >= key.daily_limit_usd)
+    || (key.weekly_limit_usd > 0 && key.usage.weekly_usd >= key.weekly_limit_usd)
+  ));
 
   return (
     <div className="usage-page dashboard-page">
       <div className="usage-page-head dashboard-head">
         <div className="page-heading">
-          <span>{t("usage.eyebrow")}</span>
+          <span>{t("usage.eyebrow")} · v{APP_VERSION}</span>
           <div className="page-heading-title"><h1>{t("usage.overviewTitle")}</h1></div>
           <p>{t("usage.overviewHint")}</p>
         </div>
@@ -264,6 +279,27 @@ export default function UsageOverview() {
             <article className="dashboard-kpi compact latency-tone"><span>{t("usage.stats.latencyP95")}</span><strong>{formatDuration(performance?.p95_latency_ms)}</strong><small>{t("usage.stats.samples", { count: formatCount(performance?.latency_samples ?? 0) })}</small></article>
             <article className="dashboard-kpi compact ttft-tone"><span>{t("usage.stats.ttftP95")}</span><strong>{formatDuration(performance?.p95_ttft_ms)}</strong><small>{t("usage.stats.samples", { count: formatCount(performance?.ttft_samples ?? 0) })}</small></article>
           </section>
+
+          {!viewer && <>
+            <div className="usage-section-head dashboard-section-head">
+              <div><h2>{t("usage.quota.title")}</h2><p>{t("usage.quota.hint")}</p></div>
+              <span>{t("usage.quota.keyCount", { count: visibleKeys.length })}</span>
+            </div>
+
+            <section className="key-quota-layout">
+              <div className="key-quota-summary" aria-label={t("usage.quota.summary")}>
+                <article><span>{t("usage.quota.limitedKeys")}</span><strong>{limitedKeys.length}</strong></article>
+                <article><span>{t("usage.quota.unlimitedKeys")}</span><strong>{visibleKeys.length - limitedKeys.length}</strong></article>
+                <article className={overQuotaKeys.length > 0 ? "danger" : ""}><span>{t("usage.quota.exhaustedKeys")}</span><strong>{overQuotaKeys.length}</strong></article>
+              </div>
+              <div className="dashboard-chart-card key-quota-card">
+                <div className="dashboard-card-head"><div><h2>{t("usage.quota.chartTitle")}</h2><p>{t("usage.quota.chartHint")}</p></div><span>{t("usage.quota.percentage")}</span></div>
+                {limitedKeys.length > 0
+                  ? <KeyQuotaChart keys={visibleKeys} />
+                  : <div className="analysis-empty muted">{t("usage.quota.noLimits")}</div>}
+              </div>
+            </section>
+          </>}
 
           <div className="usage-section-head dashboard-section-head">
             <div><h2>{t("usage.dashboard.activity")}</h2><p>{t("usage.dashboard.activityHint")}</p></div>

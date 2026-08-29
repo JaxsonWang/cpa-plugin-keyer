@@ -96,6 +96,25 @@ http://HOST:PORT/v0/resource/plugins/cpa-keyer/index.html
 
 Log in with the CPA management secret. The UI provides key management, direct model selection, models.dev price synchronization, budget/RPM policy, per-model usage, overview charts, analysis, and request events. The management secret remains in memory rather than `localStorage`.
 
+### Per-key read-only view
+
+Open the following URL to view one downstream Keyer key without entering the
+CPA management secret or exposing the `management.html` entry:
+
+```text
+https://HOST:8317/v0/resource/plugins/cpa-keyer/index.html#/key/<KEY>
+```
+
+The key is authenticated as a bearer credential and can access only its own
+Key details, overview, and request events. The viewer has no create, edit,
+delete, rotate, enable/disable, quota-reset, RPM-reset, or cross-key access.
+Navigation keeps the key-scoped routes under `/key/<KEY>`, including
+`/overview` and `/events`.
+
+The key stays in the URL fragment and in browser memory; it is not written to
+`localStorage`. Treat the complete URL as a secret because anyone who receives
+the downstream key can use it for the permissions assigned to that key.
+
 Development:
 
 ```bash

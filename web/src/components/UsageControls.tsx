@@ -1,5 +1,6 @@
 import type { UsageFilters, UsageRange } from "../types";
 import { useT } from "../i18n";
+import { getSession, isViewerSession } from "../store/session";
 
 interface UsageControlsProps {
   range: UsageRange;
@@ -23,6 +24,7 @@ export default function UsageControls({
   children,
 }: UsageControlsProps) {
   const t = useT();
+  const viewer = isViewerSession(getSession());
   return (
     <div className="usage-controls">
       <label>
@@ -39,7 +41,7 @@ export default function UsageControls({
           <option value="90d">{t("usage.range90d")}</option>
         </select>
       </label>
-      <label>
+      {!viewer && <label>
         <span>{t("usage.key")}</span>
         <select
           aria-label={t("usage.key")}
@@ -50,7 +52,7 @@ export default function UsageControls({
           <option value="">{t("usage.allKeys")}</option>
           {(filters?.key_ids ?? []).map((id) => <option key={id} value={id}>{id}</option>)}
         </select>
-      </label>
+      </label>}
       {children}
       <button className="btn sm usage-refresh" type="button" disabled={disabled} onClick={onRefresh}>
         {t("usage.refresh")}

@@ -15,6 +15,7 @@ import {
   tokensPerSecond,
 } from "../utils/usageFormat";
 import { patchSearchParams, readPositivePage, readUsageRange } from "../utils/usageSearchParams";
+import { APP_VERSION } from "../version";
 
 function messageOf(error: unknown, fallback: string): string {
   const typed = error as { response?: { data?: { error?: { message?: string } } }; message?: string };
@@ -103,7 +104,7 @@ export default function RequestEvents() {
     <div className="usage-page events-page">
       <div className="usage-page-head events-head">
         <div className="page-heading">
-          <span>{t("usage.eyebrow")}</span>
+          <span>{t("usage.eyebrow")} · v{APP_VERSION}</span>
           <div className="page-heading-title">
             <h1>{t("usage.eventsTitle")}</h1>
             {data && <span className="heading-count-tag">{t("usage.eventsCount", { count: data.total })}</span>}

@@ -264,7 +264,7 @@ func (h *stateDatabase) eventPage(filter UsageHistoryFilter, page, pageSize int)
 	if err := rows.Err(); err != nil {
 		return UsageEventPage{}, fmt.Errorf("iterate usage events: %w", err)
 	}
-	filters, err := h.filterOptions()
+	filters, err := h.filterOptions(UsageHistoryFilter{KeyID: filter.KeyID})
 	if err != nil {
 		return UsageEventPage{}, err
 	}
@@ -315,7 +315,7 @@ func (h *stateDatabase) overview(filter UsageHistoryFilter) (UsageOverview, erro
 	if err != nil {
 		return UsageOverview{}, err
 	}
-	filters, err := h.filterOptions()
+	filters, err := h.filterOptions(UsageHistoryFilter{KeyID: filter.KeyID})
 	if err != nil {
 		return UsageOverview{}, err
 	}
@@ -386,7 +386,7 @@ func (h *stateDatabase) analysis(filter UsageHistoryFilter) (UsageAnalysis, erro
 	if err != nil {
 		return UsageAnalysis{}, err
 	}
-	filters, err := h.filterOptions()
+	filters, err := h.filterOptions(UsageHistoryFilter{KeyID: filter.KeyID})
 	if err != nil {
 		return UsageAnalysis{}, err
 	}
@@ -585,36 +585,37 @@ func appendUsageCondition(where, condition string) string {
 	return where + " AND " + condition
 }
 
-func (h *stateDatabase) filterOptions() (UsageFilters, error) {
-	keys, err := h.distinctValues("key_id")
+func (h *stateDatabase) filterOptions(scope UsageHistoryFilter) (UsageFilters, error) {
+	where, args := usageWhere(scope)
+	keys, err := h.distinctValues("key_id", where, args)
 	if err != nil {
 		return UsageFilters{}, err
 	}
-	providers, err := h.distinctValues("provider")
+	providers, err := h.distinctValues("provider", where, args)
 	if err != nil {
 		return UsageFilters{}, err
 	}
-	models, err := h.distinctValues("model")
+	models, err := h.distinctValues("model", where, args)
 	if err != nil {
 		return UsageFilters{}, err
 	}
-	executors, err := h.distinctValues("executor_type")
+	executors, err := h.distinctValues("executor_type", where, args)
 	if err != nil {
 		return UsageFilters{}, err
 	}
-	authTypes, err := h.distinctValues("auth_type")
+	authTypes, err := h.distinctValues("auth_type", where, args)
 	if err != nil {
 		return UsageFilters{}, err
 	}
-	sources, err := h.distinctValues("source")
+	sources, err := h.distinctValues("source", where, args)
 	if err != nil {
 		return UsageFilters{}, err
 	}
-	serviceTiers, err := h.distinctValues("service_tier")
+	serviceTiers, err := h.distinctValues("service_tier", where, args)
 	if err != nil {
 		return UsageFilters{}, err
 	}
-	statusCodes, err := h.distinctStatusCodes()
+	statusCodes, err := h.distinctStatusCodes(where, args)
 	if err != nil {
 		return UsageFilters{}, err
 	}
@@ -625,8 +626,9 @@ func (h *stateDatabase) filterOptions() (UsageFilters, error) {
 	}, nil
 }
 
-func (h *stateDatabase) distinctStatusCodes() ([]int, error) {
-	rows, err := h.db.Query(`SELECT DISTINCT status_code FROM usage_events WHERE status_code > 0 ORDER BY status_code`)
+func (h *stateDatabase) distinctStatusCodes(where string, args []any) ([]int, error) {
+	where = appendUsageCondition(where, "status_code > 0")
+	rows, err := h.db.Query(`SELECT DISTINCT status_code FROM usage_events`+where+` ORDER BY status_code`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query usage status filters: %w", err)
 	}
@@ -645,8 +647,9 @@ func (h *stateDatabase) distinctStatusCodes() ([]int, error) {
 	return result, nil
 }
 
-func (h *stateDatabase) distinctValues(column string) ([]string, error) {
-	rows, err := h.db.Query(`SELECT DISTINCT ` + column + ` FROM usage_events WHERE TRIM(` + column + `) != '' ORDER BY ` + column + ` COLLATE NOCASE`)
+func (h *stateDatabase) distinctValues(column, where string, args []any) ([]string, error) {
+	where = appendUsageCondition(where, "TRIM("+column+") != ''")
+	rows, err := h.db.Query(`SELECT DISTINCT `+column+` FROM usage_events`+where+` ORDER BY `+column+` COLLATE NOCASE`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query usage filter %s: %w", column, err)
 	}
