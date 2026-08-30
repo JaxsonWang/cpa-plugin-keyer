@@ -14,9 +14,12 @@ import KeyUsage from "./KeyUsage";
 
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
+// tick 等待一轮异步任务；Promise 回调中的 resolve 用于结束等待。
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
   _resetLocale("zh-CN");
+  localStorage.clear();
   container = document.createElement("div");
   document.body.appendChild(container);
 });
@@ -31,6 +34,7 @@ afterEach(() => {
 describe("KeyUsage viewer", () => {
   it("loads only the authenticated key id and hides management actions", async () => {
     setViewerSession("https://cpa.example.com", "cpa_viewer", "direct");
+    localStorage.setItem("cpa-keyer-usage-filters:key-usage-viewer", "window=weekly");
     vi.mocked(fetchKeyUsage).mockResolvedValue({
       key_id: "team-a",
       key_name: "Team A",
@@ -46,8 +50,7 @@ describe("KeyUsage viewer", () => {
           <KeyUsage viewerKeyID="team-a" />
         </MemoryRouter>,
       );
-      await Promise.resolve();
-      await Promise.resolve();
+      await tick();
     });
 
     expect(fetchKeyUsage).toHaveBeenCalledWith("team-a");
@@ -55,5 +58,10 @@ describe("KeyUsage viewer", () => {
     expect(container.textContent).toContain("Team A");
     expect(container.querySelector('a[href="/keys"]')).toBeNull();
     expect(container.querySelector('a[href$="/edit"]')).toBeNull();
+    // weeklyTab 是 Viewer Key 页面恢复记忆后选中的本周筛选。
+    const weeklyTab = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+      .find((button) => button.textContent === "本周")!;
+    expect(weeklyTab.getAttribute("aria-selected")).toBe("true");
+    expect(container.querySelector(".uhd-tk")?.textContent).toBe("本周花费");
   });
 });

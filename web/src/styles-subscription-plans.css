@@ -1,0 +1,615 @@
+/* 订阅计划列表、新建页和编辑页统一占满工作区。 */
+.plans-page,
+.plan-edit-page {
+  width: 100%;
+  min-width: 0;
+}
+
+.plans-page-head,
+.plan-edit-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 20px;
+}
+
+.plans-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.plans-refresh svg {
+  transition: transform var(--t-fast);
+}
+
+.plans-refresh:hover:not(:disabled) svg {
+  transform: rotate(22deg);
+}
+
+.plans-page > .error,
+.plan-edit-page > .error {
+  margin-bottom: 16px;
+}
+
+/* 订阅计划列表采用受限宽度卡片，避免单个计划横跨整页。 */
+.plan-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 560px));
+  align-items: start;
+  gap: 18px;
+}
+
+.plan-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 16px;
+  padding: 21px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+}
+
+.plan-card.expired {
+  border-color: var(--danger-border);
+}
+
+.plan-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.plan-title-block {
+  min-width: 0;
+}
+
+.plan-title-block h2 {
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-id {
+  display: block;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-state {
+  display: inline-flex;
+  min-height: 25px;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 3px 9px;
+  border: 1px solid var(--ok-border);
+  border-radius: var(--r-full);
+  color: var(--ok);
+  background: var(--ok-soft);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.plan-state.expired {
+  color: var(--danger);
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+}
+
+.plan-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--panel-2);
+}
+
+.plan-metrics > div {
+  min-width: 0;
+  padding: 11px 12px;
+  border-left: 1px solid var(--border);
+}
+
+.plan-metrics > div:first-child {
+  border-left: 0;
+}
+
+.plan-metrics dt {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.055em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.plan-metrics dd {
+  margin: 4px 0 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-details {
+  display: grid;
+  gap: 9px;
+}
+
+.plan-detail-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.plan-detail-row strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 650;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-bindings {
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.plan-bindings-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 9px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.plan-key-pills {
+  display: flex;
+  min-height: 26px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.plan-key-pills span {
+  max-width: 180px;
+  overflow: hidden;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  background: var(--panel-2);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-key-pills em {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.plan-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 1px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+/* 空状态保持聚焦，避免在超宽工作区形成大片无意义空白。 */
+.plans-empty,
+.plans-status {
+  display: grid;
+  width: min(100%, 680px);
+  min-height: 300px;
+  place-items: center;
+  align-content: center;
+  justify-items: center;
+  margin-top: 30px;
+  padding: 48px 42px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+  text-align: center;
+}
+
+.plans-empty-mark {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  color: var(--text);
+  background: var(--panel-2);
+}
+
+.plans-empty-kicker {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+}
+
+.plans-empty h2 {
+  margin: 6px 0 8px;
+  color: var(--text);
+  font-size: 22px;
+  letter-spacing: -0.025em;
+}
+
+.plans-empty p {
+  max-width: 470px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.plans-empty-action {
+  margin-top: 22px;
+}
+
+.plans-status {
+  min-height: 220px;
+  gap: 12px;
+  color: var(--muted);
+}
+
+.plans-loading-indicator {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: plan-loading-spin 700ms linear infinite;
+}
+
+@keyframes plan-loading-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 计划编辑页将到期时间和 Key 绑定分成上下两个职责明确的区域。 */
+.plan-scope-card {
+  margin-bottom: 18px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.plan-expiry-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 20px 22px;
+}
+
+.plan-expiry-row > .input {
+  width: min(100%, 330px);
+  flex: 0 0 auto;
+}
+
+.plan-section-copy {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.plan-section-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  color: var(--text);
+  background: var(--panel-2);
+}
+
+.plan-section-copy label,
+.plan-section-copy strong {
+  display: block;
+  margin: 1px 0 3px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.plan-section-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.plan-binding-section {
+  padding: 20px 22px 22px;
+  border-top: 1px solid var(--border);
+}
+
+.plan-binding-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.plan-select-all {
+  flex: 0 0 auto;
+  min-width: 86px;
+}
+
+.plan-key-search {
+  position: relative;
+  margin: 15px 0 12px;
+}
+
+.plan-key-search > svg {
+  position: absolute;
+  top: 50%;
+  left: 13px;
+  z-index: 1;
+  color: var(--muted);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.plan-key-search > .input {
+  width: 100%;
+  padding-left: 40px;
+}
+
+.plan-key-picker {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  max-height: 340px;
+  overflow: auto;
+  padding: 2px;
+}
+
+.plan-key-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  min-height: 60px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--panel-2);
+  cursor: pointer;
+}
+
+.plan-key-option:hover {
+  border-color: var(--border-hover);
+}
+
+.plan-key-option:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.plan-key-option.disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.plan-key-option input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+.plan-key-option > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.plan-key-option strong,
+.plan-key-option small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-key-option strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.plan-key-option small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.plan-key-option em {
+  max-width: 130px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-key-empty {
+  grid-column: 1 / -1;
+  padding: 28px 12px;
+  text-align: center;
+}
+
+.plan-edit-page .policy-notice {
+  margin-bottom: 18px;
+}
+
+.policy-notice {
+  padding: 11px 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  color: var(--text);
+  background: var(--accent-soft);
+}
+
+/* Key 列表中的计划选择控件继续沿用同一套订阅计划样式。 */
+.key-plan-select {
+  min-width: 148px;
+  padding: 7px 9px;
+  font-size: 12px;
+}
+
+.kc-plan-field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0;
+}
+
+.kc-plan-field > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.kc-plan-field select {
+  padding: 7px 9px;
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .plans-page-head,
+  .plan-edit-head {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .plan-edit-head .page-heading h1 {
+    display: block !important;
+  }
+
+  .plans-page-actions {
+    width: 100%;
+  }
+
+  .plans-page-actions .btn {
+    flex: 1;
+  }
+
+  .plan-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .plan-card {
+    padding: 18px;
+  }
+
+  .plan-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .plan-metrics > div:nth-child(3) {
+    border-left: 0;
+  }
+
+  .plan-metrics > div:nth-child(n + 3) {
+    border-top: 1px solid var(--border);
+  }
+
+  .plans-empty,
+  .plans-status {
+    width: 100%;
+    min-height: 270px;
+    margin-top: 18px;
+    padding: 38px 22px;
+  }
+
+  .plan-expiry-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+    padding: 18px;
+  }
+
+  .plan-expiry-row > .input {
+    width: 100%;
+  }
+
+  .plan-binding-section {
+    padding: 18px;
+  }
+
+  .plan-key-picker {
+    grid-template-columns: minmax(0, 1fr);
+    max-height: 390px;
+  }
+}
+
+@media (max-width: 640px) {
+  .plans-page-head .page-heading h1,
+  .plan-edit-head .page-heading h1 {
+    font-size: 21px !important;
+  }
+}
+
+@media (max-width: 420px) {
+  .plan-binding-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .plan-select-all {
+    width: 100%;
+  }
+
+  .plan-detail-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .plan-detail-row strong {
+    text-align: left;
+    white-space: normal;
+  }
+}

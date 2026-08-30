@@ -47,6 +47,171 @@ func TestStoreAuthenticateUnknownKeyFallsThrough(t *testing.T) {
 	}
 }
 
+func TestSubscriptionPlanControlsBoundKeyAndPersists(t *testing.T) {
+	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	path := filepath.Join(t.TempDir(), "state.db")
+	plain := "cpa_subscription_key"
+	hash, err := HashKey(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore()
+	store.SetClock(func() time.Time { return now })
+	if err := store.Configure(Config{
+		Enabled:   true,
+		StateFile: path,
+		Keys: []KeyConfig{{
+			ID: "team-a", Name: "Team A", Enabled: true, KeyHash: hash,
+			RPM: 3, Models: []ModelRule{{Model: "fallback"}}, DailyLimitUSD: 1,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	bound := []string{"team-a"}
+	plan, err := store.UpsertSubscriptionPlan(SubscriptionPlan{
+		ID: "standard", Name: "Standard", RPM: 20,
+		Models:        []ModelRule{{Model: "gpt-5.4", InputPricePerMillion: 2}},
+		DailyLimitUSD: 10, WeeklyLimitUSD: 40, AllowModelsEndpoint: true,
+		ExpiresAt: now.Add(24 * time.Hour),
+	}, &bound, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.CreatedAt.IsZero() || plan.UpdatedAt.IsZero() {
+		t.Fatalf("plan timestamps were not populated: %+v", plan)
+	}
+	effective, ok := store.EffectiveKey("team-a")
+	if !ok || effective.SubscriptionPlanID != "standard" || effective.RPM != 20 ||
+		effective.DailyLimitUSD != 10 || effective.WeeklyLimitUSD != 40 ||
+		!effective.AllowModelsEndpoint || len(effective.Models) != 1 ||
+		effective.Models[0].Model != "gpt-5.4" || !effective.SubscriptionExpiresAt.Equal(now.Add(24*time.Hour)) {
+		t.Fatalf("effective key = %+v", effective)
+	}
+	headers := http.Header{"Authorization": {"Bearer " + plain}}
+	if decision := store.Authenticate("POST", "/v1/chat/completions", headers, nil, []byte(`{"model":"gpt-5.4"}`)); !decision.Allowed {
+		t.Fatalf("plan model decision = %+v", decision)
+	}
+	if decision := store.Authenticate("POST", "/v1/chat/completions", headers, nil, []byte(`{"model":"fallback"}`)); decision.Allowed || decision.Reason != "model_not_allowed" {
+		t.Fatalf("fallback model decision while bound = %+v", decision)
+	}
+	if decision := store.Authenticate("GET", "/v1/models", headers, nil, nil); !decision.Allowed {
+		t.Fatalf("plan models endpoint decision = %+v", decision)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded := NewStore()
+	reloaded.SetClock(func() time.Time { return now })
+	if err := reloaded.Configure(Config{Enabled: true, StateFile: path}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reloaded.Close() })
+	if plans := reloaded.SubscriptionPlans(); len(plans) != 1 || plans[0].ID != "standard" {
+		t.Fatalf("reloaded plans = %+v", plans)
+	}
+	if key, ok := reloaded.EffectiveKey("team-a"); !ok || key.SubscriptionPlanID != "standard" || key.RPM != 20 {
+		t.Fatalf("reloaded effective key = %+v, ok=%v", key, ok)
+	}
+}
+
+func TestSubscriptionPlanUpdateExpiryAndDeleteApplyImmediately(t *testing.T) {
+	store, plain := newTestStore(t)
+	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	store.SetClock(func() time.Time { return now })
+	bound := []string{"team-a"}
+	if _, err := store.UpsertSubscriptionPlan(SubscriptionPlan{
+		ID: "standard", RPM: 20, Models: []ModelRule{{Model: "plan-model"}},
+	}, &bound, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertSubscriptionPlan(SubscriptionPlan{
+		ID: "standard", Name: "Expired", RPM: 5,
+		Models: []ModelRule{{Model: "plan-model"}}, ExpiresAt: now.Add(-time.Second),
+	}, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	headers := http.Header{"Authorization": {"Bearer " + plain}}
+	decision := store.Authenticate("POST", "/v1/chat/completions", headers, nil, []byte(`{"model":"plan-model"}`))
+	if decision.Allowed || decision.Reason != "subscription_expired" {
+		t.Fatalf("expired plan decision = %+v", decision)
+	}
+	if unbound, err := store.DeleteSubscriptionPlan("standard"); err != nil || unbound != 1 {
+		t.Fatalf("DeleteSubscriptionPlan unbound=%d err=%v", unbound, err)
+	}
+	decision = store.Authenticate("POST", "/v1/chat/completions", headers, nil, []byte(`{"model":"fast"}`))
+	if !decision.Allowed {
+		t.Fatalf("standalone fallback after plan deletion = %+v", decision)
+	}
+	raw := store.Keys()[0]
+	if raw.SubscriptionPlanID != "" || raw.RPM != 1 || len(raw.Models) != 1 || raw.Models[0].Model != "fast" {
+		t.Fatalf("raw fallback policy changed by plan lifecycle: %+v", raw)
+	}
+}
+
+func TestSubscriptionPlanBindingConflictIsAtomic(t *testing.T) {
+	store, _ := newTestStore(t)
+	bound := []string{"team-a"}
+	if _, err := store.UpsertSubscriptionPlan(SubscriptionPlan{ID: "first", Models: []ModelRule{{Model: "fast"}}}, &bound, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertSubscriptionPlan(SubscriptionPlan{ID: "second", Models: []ModelRule{{Model: "fast"}}}, &bound, true); err == nil {
+		t.Fatal("binding a key owned by another plan unexpectedly succeeded")
+	}
+	if plans := store.SubscriptionPlans(); len(plans) != 1 || plans[0].ID != "first" {
+		t.Fatalf("conflicting create changed plans: %+v", plans)
+	}
+	if key := store.Keys()[0]; key.SubscriptionPlanID != "first" {
+		t.Fatalf("conflicting create changed binding: %+v", key)
+	}
+}
+
+func TestSubscriptionPlanSaveDoesNotOverwriteNewerUsageSnapshot(t *testing.T) {
+	store, _ := newTestStore(t)
+	store.persistMu.Lock()
+	persistenceLocked := true
+	defer func() {
+		if persistenceLocked {
+			store.persistMu.Unlock()
+		}
+	}()
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := store.UpsertSubscriptionPlan(SubscriptionPlan{
+			ID:     "standard",
+			Models: []ModelRule{{Model: "fast"}},
+		}, nil, true)
+		errCh <- err
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for store.updateMu.TryLock() {
+		store.updateMu.Unlock()
+		if time.Now().After(deadline) {
+			t.Fatal("subscription plan update did not start")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	// The update now waits on persistMu. Usage recorded here must be included in
+	// the later configuration transaction rather than replaced by an older copy.
+	time.Sleep(10 * time.Millisecond)
+	store.usage.RecordCost("team-a", "fast", 7, 0, 0, 0, 0, 1)
+	store.persistMu.Unlock()
+	persistenceLocked = false
+
+	if err := <-errCh; err != nil {
+		t.Fatal(err)
+	}
+	_, _, usage, initialized, err := store.runtimeHistory().loadStateWithPlans()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !initialized || usage["team-a"] == nil || usage["team-a"].Daily.TotalUSD != 7 {
+		t.Fatalf("persisted usage after plan save = %+v, initialized=%v", usage["team-a"], initialized)
+	}
+}
+
 func TestAuthenticateKeyOnlyValidatesCredentialIdentity(t *testing.T) {
 	store, plain := newTestStore(t)
 	key := store.Keys()[0]

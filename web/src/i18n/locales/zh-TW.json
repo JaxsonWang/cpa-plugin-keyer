@@ -94,14 +94,21 @@
     "statModels": "授權模型",
     "statModelsHint": "去重後的模型數",
     "statSpend": "今日用量",
-    "statSpendHint": "全部金鑰累計"
+    "statSpendHint": "全部金鑰累計",
+    "colPlan": "訂閱計劃",
+    "planSelect": "修改 Key {{id}} 的訂閱計劃",
+    "noPlan": "不使用計劃",
+    "planUpdateFailed": "訂閱計劃更新失敗",
+    "planControlsLimits": "該 Key 的用量上限由訂閱計劃統一管理，請編輯訂閱計劃",
+    "expired": "已到期"
   },
   "edit": {
     "title": "編輯 Key · {{id}}",
     "notFound": "找不到",
     "save": "儲存修改",
     "eyebrow": "策略設定",
-    "pageHint": "調整存取邊界、速率限制與模型計價。"
+    "pageHint": "調整存取邊界、速率限制與模型計價。",
+    "planOverrideNotice": "目前綁定訂閱計劃「{{plan}}」。下方單 Key 策略會保留，但僅在解除綁定後生效。"
   },
   "new": {
     "title": "新建 Key",
@@ -157,7 +164,12 @@
     "syncingPrice": "同步中…",
     "syncPriceDone": "已同步 {{matched}} / {{total}} 個模型；未匹配項維持原價。",
     "syncPriceFailed": "價格同步失敗",
-    "syncPriceError": "同步失敗：{{message}}"
+    "syncPriceError": "同步失敗：{{message}}",
+    "planIdLabel": "計劃 ID *",
+    "planIdPlaceholder": "例如 team-standard",
+    "planNameLabel": "計劃名稱",
+    "planNamePlaceholder": "例如團隊標準版",
+    "planIdRequired": "計劃 id 不可為空"
   },
   "picker": {
     "loading": "載入可用模型…",
@@ -396,5 +408,52 @@
     "confirmTitle": "確認執行此操作",
     "cancel": "取消",
     "processing": "處理中…"
+  },
+  "theme": {
+    "label": "主題",
+    "auto": "自動",
+    "light": "白天",
+    "dark": "黑夜"
+  },
+  "plans": {
+    "title": "訂閱計劃",
+    "pageHint": "集中維護模型權限、到期時間、RPM 與用量上限，並統一套用到已綁定 Key。",
+    "new": "新增訂閱計劃",
+    "loading": "載入中…",
+    "loadFailed": "訂閱計劃載入失敗",
+    "emptyTitle": "還沒有訂閱計劃",
+    "emptyHint": "建立一個計劃後，即可從計劃頁或 Key 清單重複使用同一組存取策略。",
+    "newTitle": "新增訂閱計劃",
+    "editTitle": "編輯訂閱計劃",
+    "formHint": "計劃參數會即時接管所有已綁定 Key；Key 本身的策略保留為解除綁定後的設定。",
+    "policyNotice": "模型、RPM、日／週上限和 /v1/models 權限由此計劃統一維護。儲存後所有已綁定 Key 立即生效。",
+    "notFound": "找不到該訂閱計劃",
+    "create": "建立計劃",
+    "save": "儲存計劃",
+    "edit": "編輯",
+    "delete": "刪除",
+    "deleteFailed": "訂閱計劃刪除失敗",
+    "deleteConfirm": "確認刪除訂閱計劃「{{name}}」？已綁定的 {{count}} 個 Key 將自動解除綁定並恢復各自原有策略。",
+    "active": "生效中",
+    "expired": "已到期",
+    "rpm": "RPM",
+    "daily": "每日上限",
+    "weekly": "每週上限",
+    "models": "模型",
+    "expiry": "到期時間",
+    "neverExpires": "永不過期",
+    "modelsEndpoint": "/v1/models",
+    "allowed": "允許存取",
+    "blocked": "禁止存取",
+    "boundKeys": "已綁定 {{count}} 個 Key",
+    "noBoundKeys": "尚未綁定",
+    "expiryLabel": "到期時間（可選）",
+    "expiryHint": "留空表示永不過期；到期後綁定 Key 的請求會被拒絕。",
+    "bindKeysLabel": "綁定 Key",
+    "selectAllKeys": "全選",
+    "deselectAllKeys": "取消全選",
+    "searchKeys": "搜尋 Key 名稱、ID 或預覽…",
+    "selectedKeys": "已選擇 {{count}} 個 Key",
+    "noMatchingKeys": "沒有相符的 Key。"
   }
 }

@@ -524,8 +524,8 @@ func TestRegistrationUsesCpaKeyerIdentity(t *testing.T) {
 	if PluginID != "cpa-keyer" || registration.Metadata.Name != "Keyer" {
 		t.Fatalf("plugin identity = %q / %q, want cpa-keyer / Keyer", PluginID, registration.Metadata.Name)
 	}
-	if registration.Metadata.Version != "0.7.9" {
-		t.Fatalf("plugin version = %q, want 0.7.9", registration.Metadata.Version)
+	if registration.Metadata.Version != "0.7.10" {
+		t.Fatalf("plugin version = %q, want 0.7.10", registration.Metadata.Version)
 	}
 	if registration.Metadata.GitHubRepository != "https://github.com/JaxsonWang/cpa-plugin-keyer" {
 		t.Fatalf("repository = %q", registration.Metadata.GitHubRepository)

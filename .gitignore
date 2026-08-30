@@ -44,3 +44,5 @@ stitch_*.png
 nul
 .npm-cache/
 /.agents/
+.idea/
+/AGENTS.md

@@ -17,9 +17,23 @@ import (
 )
 
 const (
-	usageHistoryRetention     = 90 * 24 * time.Hour
+	// usageHistoryRetention 是请求事件在 SQLite 中保留的最长时间。
+	usageHistoryRetention = 90 * 24 * time.Hour
+	// usageHistoryPruneInterval 是两次历史事件清理之间的最短间隔。
 	usageHistoryPruneInterval = time.Hour
-	stateDatabaseVersion      = 2
+	// stateDatabaseVersion 是当前 SQLite 状态结构版本。
+	stateDatabaseVersion = 3
+	// usageEventInsertStatement 是普通写入和同步计价事务共用的事件插入语句。
+	usageEventInsertStatement = `
+		INSERT INTO usage_events (
+			timestamp_ns, key_id, key_preview, provider, model, upstream_model,
+			reasoning_effort, executor_type, auth_type, auth_index, source,
+			service_tier, generate, latency_ms, ttft_ms, status_code, failed,
+			billing_mode, cost_available, cost_usd, uncached_input_cost_usd,
+			cache_read_cost_usd, cache_creation_cost_usd, output_cost_usd,
+			other_cost_usd, input_tokens, output_tokens, reasoning_tokens,
+			cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 )
 
 var stateDatabaseInitializationMu sync.Mutex
@@ -34,6 +48,7 @@ type stateDatabase struct {
 	lastPrune time.Time
 }
 
+// openStateDatabase 以 WAL 和 FULL 同步级别打开 path，并使用 now 作为事件时钟。
 func openStateDatabase(path string, now func() time.Time) (*stateDatabase, error) {
 	if now == nil {
 		now = time.Now
@@ -45,7 +60,7 @@ func openStateDatabase(path string, now func() time.Time) (*stateDatabase, error
 	databaseURL := &url.URL{Scheme: "file", Path: path}
 	query := databaseURL.Query()
 	query.Add("_pragma", "busy_timeout(5000)")
-	query.Add("_pragma", "synchronous(NORMAL)")
+	query.Add("_pragma", "synchronous(FULL)")
 	databaseURL.RawQuery = query.Encode()
 	db, err := sql.Open("sqlite", databaseURL.String())
 	if err != nil {
@@ -70,16 +85,7 @@ func openStateDatabase(path string, now func() time.Time) (*stateDatabase, error
 		_ = db.Close()
 		return nil, err
 	}
-	database.insertStmt, err = db.Prepare(`
-		INSERT INTO usage_events (
-			timestamp_ns, key_id, key_preview, provider, model, upstream_model,
-			reasoning_effort, executor_type, auth_type, auth_index, source,
-			service_tier, generate, latency_ms, ttft_ms, status_code, failed,
-			billing_mode, cost_available, cost_usd, uncached_input_cost_usd,
-			cache_read_cost_usd, cache_creation_cost_usd, output_cost_usd,
-			other_cost_usd, input_tokens, output_tokens, reasoning_tokens,
-			cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	database.insertStmt, err = db.Prepare(usageEventInsertStatement)
 	if err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("prepare usage event insert: %w", err)
@@ -106,6 +112,19 @@ func (h *stateDatabase) initialize() error {
 			allow_models_endpoint INTEGER NOT NULL,
 			daily_limit_usd REAL NOT NULL,
 			weekly_limit_usd REAL NOT NULL,
+			subscription_plan_id TEXT NOT NULL DEFAULT '',
+			created_at_ms INTEGER NOT NULL,
+			updated_at_ms INTEGER NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS subscription_plans (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			rpm INTEGER NOT NULL,
+			models_json BLOB NOT NULL,
+			allow_models_endpoint INTEGER NOT NULL,
+			daily_limit_usd REAL NOT NULL,
+			weekly_limit_usd REAL NOT NULL,
+			expires_at_ms INTEGER NOT NULL,
 			created_at_ms INTEGER NOT NULL,
 			updated_at_ms INTEGER NOT NULL
 		)`,
@@ -214,7 +233,7 @@ func (h *stateDatabase) migrateSchema() error {
 		transactionOpen = false
 		return nil
 	}
-	if version != 1 {
+	if version < 1 {
 		return fmt.Errorf("state database schema version %d is unsupported", version)
 	}
 
@@ -238,6 +257,28 @@ func (h *stateDatabase) migrateSchema() error {
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate usage event columns: %w", err)
+	}
+
+	keyColumns := make(map[string]bool)
+	keyRows, err := conn.QueryContext(ctx, `PRAGMA table_info(key_configs)`)
+	if err != nil {
+		return fmt.Errorf("inspect key configuration columns: %w", err)
+	}
+	for keyRows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err := keyRows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			_ = keyRows.Close()
+			return fmt.Errorf("scan key configuration column: %w", err)
+		}
+		keyColumns[name] = true
+	}
+	if err := keyRows.Close(); err != nil {
+		return fmt.Errorf("close key configuration column rows: %w", err)
+	}
+	if err := keyRows.Err(); err != nil {
+		return fmt.Errorf("iterate key configuration columns: %w", err)
 	}
 
 	migrations := []struct {
@@ -268,6 +309,11 @@ func (h *stateDatabase) migrateSchema() error {
 			return fmt.Errorf("migrate usage event details: %w", err)
 		}
 	}
+	if !keyColumns["subscription_plan_id"] {
+		if _, err := conn.ExecContext(ctx, `ALTER TABLE key_configs ADD COLUMN subscription_plan_id TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("migrate key subscription plan binding: %w", err)
+		}
+	}
 	if _, err := conn.ExecContext(ctx, `UPDATE state_meta SET schema_version = ?, updated_at_ms = ? WHERE id = 1`, stateDatabaseVersion, h.currentTime().UnixMilli()); err != nil {
 		return fmt.Errorf("update state database schema version: %w", err)
 	}
@@ -279,24 +325,29 @@ func (h *stateDatabase) migrateSchema() error {
 }
 
 func (h *stateDatabase) loadState() ([]KeyConfig, map[string]*UsageState, bool, error) {
+	keys, _, usage, initialized, err := h.loadStateWithPlans()
+	return keys, usage, initialized, err
+}
+
+func (h *stateDatabase) loadStateWithPlans() ([]KeyConfig, []SubscriptionPlan, map[string]*UsageState, bool, error) {
 	var version int
 	if err := h.db.QueryRow(`SELECT schema_version FROM state_meta WHERE id = 1`).Scan(&version); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil, false, nil
+			return nil, nil, nil, false, nil
 		}
-		return nil, nil, false, fmt.Errorf("read state database metadata: %w", err)
+		return nil, nil, nil, false, fmt.Errorf("read state database metadata: %w", err)
 	}
 	if version > stateDatabaseVersion {
-		return nil, nil, false, fmt.Errorf("state database schema version %d is newer than supported version %d", version, stateDatabaseVersion)
+		return nil, nil, nil, false, fmt.Errorf("state database schema version %d is newer than supported version %d", version, stateDatabaseVersion)
 	}
 
 	rows, err := h.db.Query(`
 		SELECT id, name, enabled, key_hash, key_preview, rpm, models_json,
 			allow_models_endpoint, daily_limit_usd, weekly_limit_usd,
-			created_at_ms, updated_at_ms
+			subscription_plan_id, created_at_ms, updated_at_ms
 		FROM key_configs ORDER BY id`)
 	if err != nil {
-		return nil, nil, false, fmt.Errorf("query key configurations: %w", err)
+		return nil, nil, nil, false, fmt.Errorf("query key configurations: %w", err)
 	}
 	keys := make([]KeyConfig, 0)
 	for rows.Next() {
@@ -307,14 +358,14 @@ func (h *stateDatabase) loadState() ([]KeyConfig, map[string]*UsageState, bool, 
 		if err := rows.Scan(
 			&key.ID, &key.Name, &enabled, &key.KeyHash, &key.KeyPreview, &key.RPM,
 			&modelsJSON, &allowModels, &key.DailyLimitUSD, &key.WeeklyLimitUSD,
-			&createdAt, &updatedAt,
+			&key.SubscriptionPlanID, &createdAt, &updatedAt,
 		); err != nil {
 			_ = rows.Close()
-			return nil, nil, false, fmt.Errorf("scan key configuration: %w", err)
+			return nil, nil, nil, false, fmt.Errorf("scan key configuration: %w", err)
 		}
 		if err := json.Unmarshal(modelsJSON, &key.Models); err != nil {
 			_ = rows.Close()
-			return nil, nil, false, fmt.Errorf("decode models for key %q: %w", key.ID, err)
+			return nil, nil, nil, false, fmt.Errorf("decode models for key %q: %w", key.ID, err)
 		}
 		key.Enabled = enabled != 0
 		key.AllowModelsEndpoint = allowModels != 0
@@ -323,15 +374,20 @@ func (h *stateDatabase) loadState() ([]KeyConfig, map[string]*UsageState, bool, 
 		keys = append(keys, key)
 	}
 	if err := rows.Close(); err != nil {
-		return nil, nil, false, fmt.Errorf("close key configuration rows: %w", err)
+		return nil, nil, nil, false, fmt.Errorf("close key configuration rows: %w", err)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, false, fmt.Errorf("iterate key configurations: %w", err)
+		return nil, nil, nil, false, fmt.Errorf("iterate key configurations: %w", err)
+	}
+
+	plans, err := h.loadSubscriptionPlans()
+	if err != nil {
+		return nil, nil, nil, false, err
 	}
 
 	usageRows, err := h.db.Query(`SELECT key_id, state_json FROM usage_state ORDER BY key_id`)
 	if err != nil {
-		return nil, nil, false, fmt.Errorf("query usage state: %w", err)
+		return nil, nil, nil, false, fmt.Errorf("query usage state: %w", err)
 	}
 	usage := make(map[string]*UsageState)
 	for usageRows.Next() {
@@ -339,25 +395,33 @@ func (h *stateDatabase) loadState() ([]KeyConfig, map[string]*UsageState, bool, 
 		var stateJSON []byte
 		if err := usageRows.Scan(&keyID, &stateJSON); err != nil {
 			_ = usageRows.Close()
-			return nil, nil, false, fmt.Errorf("scan usage state: %w", err)
+			return nil, nil, nil, false, fmt.Errorf("scan usage state: %w", err)
 		}
 		var state UsageState
 		if err := json.Unmarshal(stateJSON, &state); err != nil {
 			_ = usageRows.Close()
-			return nil, nil, false, fmt.Errorf("decode usage state for key %q: %w", keyID, err)
+			return nil, nil, nil, false, fmt.Errorf("decode usage state for key %q: %w", keyID, err)
 		}
 		usage[keyID] = &state
 	}
 	if err := usageRows.Close(); err != nil {
-		return nil, nil, false, fmt.Errorf("close usage state rows: %w", err)
+		return nil, nil, nil, false, fmt.Errorf("close usage state rows: %w", err)
 	}
 	if err := usageRows.Err(); err != nil {
-		return nil, nil, false, fmt.Errorf("iterate usage state: %w", err)
+		return nil, nil, nil, false, fmt.Errorf("iterate usage state: %w", err)
 	}
-	return keys, usage, true, nil
+	return keys, plans, usage, true, nil
 }
 
 func (h *stateDatabase) saveState(keys []KeyConfig, usage map[string]*UsageState) error {
+	plans, err := h.loadSubscriptionPlans()
+	if err != nil {
+		return err
+	}
+	return h.saveStateWithPlans(keys, plans, usage)
+}
+
+func (h *stateDatabase) saveStateWithPlans(keys []KeyConfig, plans []SubscriptionPlan, usage map[string]*UsageState) error {
 	tx, err := h.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin state transaction: %w", err)
@@ -367,6 +431,9 @@ func (h *stateDatabase) saveState(keys []KeyConfig, usage map[string]*UsageState
 		return err
 	}
 	if err := replaceKeyConfigs(tx, keys); err != nil {
+		return err
+	}
+	if err := replaceSubscriptionPlans(tx, plans); err != nil {
 		return err
 	}
 	if err := replaceUsageState(tx, usage); err != nil {
@@ -386,8 +453,8 @@ func replaceKeyConfigs(tx *sql.Tx, keys []KeyConfig) error {
 		INSERT INTO key_configs (
 			id, name, enabled, key_hash, key_preview, rpm, models_json,
 			allow_models_endpoint, daily_limit_usd, weekly_limit_usd,
-			created_at_ms, updated_at_ms
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+			subscription_plan_id, created_at_ms, updated_at_ms
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare key configuration write: %w", err)
 	}
@@ -400,9 +467,79 @@ func replaceKeyConfigs(tx *sql.Tx, keys []KeyConfig) error {
 		if _, err := keyStatement.Exec(
 			key.ID, key.Name, boolInt(key.Enabled), key.KeyHash, key.KeyPreview,
 			key.RPM, modelsJSON, boolInt(key.AllowModelsEndpoint), key.DailyLimitUSD,
-			key.WeeklyLimitUSD, timeToMillis(key.CreatedAt), timeToMillis(key.UpdatedAt),
+			key.WeeklyLimitUSD, key.SubscriptionPlanID,
+			timeToMillis(key.CreatedAt), timeToMillis(key.UpdatedAt),
 		); err != nil {
 			return fmt.Errorf("write key configuration %q: %w", key.ID, err)
+		}
+	}
+	return nil
+}
+
+func (h *stateDatabase) loadSubscriptionPlans() ([]SubscriptionPlan, error) {
+	rows, err := h.db.Query(`
+		SELECT id, name, rpm, models_json, allow_models_endpoint,
+			daily_limit_usd, weekly_limit_usd, expires_at_ms,
+			created_at_ms, updated_at_ms
+		FROM subscription_plans ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("query subscription plans: %w", err)
+	}
+	defer rows.Close()
+	plans := make([]SubscriptionPlan, 0)
+	for rows.Next() {
+		var plan SubscriptionPlan
+		var modelsJSON []byte
+		var allowModels int
+		var expiresAt, createdAt, updatedAt int64
+		if err := rows.Scan(
+			&plan.ID, &plan.Name, &plan.RPM, &modelsJSON, &allowModels,
+			&plan.DailyLimitUSD, &plan.WeeklyLimitUSD, &expiresAt,
+			&createdAt, &updatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan subscription plan: %w", err)
+		}
+		if err := json.Unmarshal(modelsJSON, &plan.Models); err != nil {
+			return nil, fmt.Errorf("decode models for subscription plan %q: %w", plan.ID, err)
+		}
+		plan.AllowModelsEndpoint = allowModels != 0
+		plan.ExpiresAt = millisToTime(expiresAt)
+		plan.CreatedAt = millisToTime(createdAt)
+		plan.UpdatedAt = millisToTime(updatedAt)
+		plans = append(plans, plan)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate subscription plans: %w", err)
+	}
+	return plans, nil
+}
+
+func replaceSubscriptionPlans(tx *sql.Tx, plans []SubscriptionPlan) error {
+	if _, err := tx.Exec(`DELETE FROM subscription_plans`); err != nil {
+		return fmt.Errorf("replace subscription plans: %w", err)
+	}
+	statement, err := tx.Prepare(`
+		INSERT INTO subscription_plans (
+			id, name, rpm, models_json, allow_models_endpoint,
+			daily_limit_usd, weekly_limit_usd, expires_at_ms,
+			created_at_ms, updated_at_ms
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare subscription plan write: %w", err)
+	}
+	defer statement.Close()
+	for _, plan := range plans {
+		modelsJSON, err := json.Marshal(plan.Models)
+		if err != nil {
+			return fmt.Errorf("encode models for subscription plan %q: %w", plan.ID, err)
+		}
+		if _, err := statement.Exec(
+			plan.ID, plan.Name, plan.RPM, modelsJSON,
+			boolInt(plan.AllowModelsEndpoint), plan.DailyLimitUSD,
+			plan.WeeklyLimitUSD, timeToMillis(plan.ExpiresAt),
+			timeToMillis(plan.CreatedAt), timeToMillis(plan.UpdatedAt),
+		); err != nil {
+			return fmt.Errorf("write subscription plan %q: %w", plan.ID, err)
 		}
 	}
 	return nil
@@ -422,6 +559,58 @@ func (h *stateDatabase) saveUsage(usage map[string]*UsageState) error {
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit usage state transaction: %w", err)
+	}
+	return nil
+}
+
+// persistUsageEntry 将当前 Key 的额度状态立即写入 SQLite；event 非空时与请求事件在同一事务提交。
+// keyID 表示额度归属的 Key，state 表示提交成功后应生效的完整额度状态，event 表示可选的请求事件。
+func (h *stateDatabase) persistUsageEntry(keyID string, state *UsageState, event *UsageEvent) error {
+	// normalizedKeyID 是去除首尾空白后的 Key ID。
+	normalizedKeyID := strings.TrimSpace(keyID)
+	if normalizedKeyID == "" || state == nil {
+		return fmt.Errorf("persist usage entry: key id and state are required")
+	}
+	// normalizedEvent 保存按数据库时钟规范化后的请求事件。
+	var normalizedEvent *UsageEvent
+	if event != nil {
+		// now 是本次事件规范化和历史清理使用的统一 UTC 时间。
+		now := h.currentTime()
+		if err := h.maybePrune(now); err != nil {
+			return err
+		}
+		// value 是不会修改调用方事件对象的规范化副本。
+		value := normalizeUsageEvent(*event, now)
+		normalizedEvent = &value
+	}
+	// stateJSON 是当前 Key 额度状态的持久化 JSON，err 表示编码失败原因。
+	stateJSON, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("encode usage state for key %q: %w", normalizedKeyID, err)
+	}
+	// tx 保证额度状态与请求事件同时提交或同时回滚，err 表示事务创建失败原因。
+	tx, err := h.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin synchronous usage transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := writeStateMetadata(tx); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO usage_state (key_id, state_json) VALUES (?, ?)
+		ON CONFLICT(key_id) DO UPDATE SET state_json = excluded.state_json`,
+		normalizedKeyID, stateJSON,
+	); err != nil {
+		return fmt.Errorf("write synchronous usage state for key %q: %w", normalizedKeyID, err)
+	}
+	if normalizedEvent != nil {
+		if _, err := tx.Exec(usageEventInsertStatement, usageEventArgs(*normalizedEvent)...); err != nil {
+			return fmt.Errorf("record synchronous usage event: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit synchronous usage transaction: %w", err)
 	}
 	return nil
 }

@@ -238,6 +238,7 @@ func (k *KeyConfig) PriceForAlias(alias string) (float64, float64, float64, bool
 	return k.PriceForModel(alias)
 }
 
+// ComputeCost 使用模型单价和 usage 计算本次请求成本，并按统一小数精度规范化结果。
 // ComputeCost converts token usage into a dollar amount using the model rule's prices.
 // Prices are USD per 1M tokens; cost = (tokens / 1_000_000) * price.
 // Unknown model (ok=false) → 0 cost (unpriced requests are not billed).
@@ -248,8 +249,10 @@ func ComputeCost(inputPerMillion, outputPerMillion float64, priced bool, usage T
 	if !priced || !usage.Found {
 		return 0
 	}
-	return float64(usage.PromptTokens)/1_000_000*inputPerMillion +
-		float64(usage.CompletionTokens)/1_000_000*outputPerMillion
+	return normalizePrice(
+		float64(usage.PromptTokens)/1_000_000*inputPerMillion +
+			float64(usage.CompletionTokens)/1_000_000*outputPerMillion,
+	)
 }
 
 // ComputeCacheCost is the cache-aware biller for the usage.handle path. It takes
@@ -309,6 +312,7 @@ type UsageCostBreakdown struct {
 	NonCacheInputTokens int64
 }
 
+// ComputeUsageCostBreakdown 使用 provider 的缓存语义生成唯一的成本分项和总额。
 // ComputeUsageCostBreakdown is the single cache-aware pricing implementation.
 // When no explicit cache-read price exists, cache-hit spend remains folded into
 // the input component so the visible components always add up to TotalUSD.
@@ -318,7 +322,7 @@ func ComputeUsageCostBreakdown(provider string, inputPerMillion, outputPerMillio
 	}
 	input := detail.InputTokens
 	output := detail.OutputTokens
-	if input == 0 && output == 0 {
+	if input == 0 && output == 0 && detail.CachedTokens == 0 && detail.CacheReadTokens == 0 && detail.CacheCreationTokens == 0 {
 		return UsageCostBreakdown{}
 	}
 	cacheRead := detail.CacheReadTokens
@@ -337,12 +341,12 @@ func ComputeUsageCostBreakdown(provider string, inputPerMillion, outputPerMillio
 	breakdown := UsageCostBreakdown{CacheReadTokens: cacheRead}
 	if isCacheAdditiveProvider(provider) {
 		breakdown.NonCacheInputTokens = input + detail.CacheCreationTokens
-		breakdown.CacheCreationUSD = float64(detail.CacheCreationTokens) / 1_000_000 * inputPerMillion
+		breakdown.CacheCreationUSD = normalizePrice(float64(detail.CacheCreationTokens) / 1_000_000 * inputPerMillion)
 		if explicitCachePrice {
-			breakdown.UncachedInputUSD = float64(input) / 1_000_000 * inputPerMillion
-			breakdown.CacheReadUSD = float64(cacheRead) / 1_000_000 * cachePrice
+			breakdown.UncachedInputUSD = normalizePrice(float64(input) / 1_000_000 * inputPerMillion)
+			breakdown.CacheReadUSD = normalizePrice(float64(cacheRead) / 1_000_000 * cachePrice)
 		} else {
-			breakdown.UncachedInputUSD = float64(input+cacheRead) / 1_000_000 * inputPerMillion
+			breakdown.UncachedInputUSD = normalizePrice(float64(input+cacheRead) / 1_000_000 * inputPerMillion)
 		}
 	} else {
 		if cacheRead > input {
@@ -351,13 +355,13 @@ func ComputeUsageCostBreakdown(provider string, inputPerMillion, outputPerMillio
 		}
 		breakdown.NonCacheInputTokens = input - cacheRead
 		if explicitCachePrice {
-			breakdown.UncachedInputUSD = float64(input-cacheRead) / 1_000_000 * inputPerMillion
-			breakdown.CacheReadUSD = float64(cacheRead) / 1_000_000 * cachePrice
+			breakdown.UncachedInputUSD = normalizePrice(float64(input-cacheRead) / 1_000_000 * inputPerMillion)
+			breakdown.CacheReadUSD = normalizePrice(float64(cacheRead) / 1_000_000 * cachePrice)
 		} else {
-			breakdown.UncachedInputUSD = float64(input) / 1_000_000 * inputPerMillion
+			breakdown.UncachedInputUSD = normalizePrice(float64(input) / 1_000_000 * inputPerMillion)
 		}
 	}
-	breakdown.OutputUSD = float64(output) / 1_000_000 * outputPerMillion
-	breakdown.TotalUSD = breakdown.UncachedInputUSD + breakdown.CacheReadUSD + breakdown.CacheCreationUSD + breakdown.OutputUSD
+	breakdown.OutputUSD = normalizePrice(float64(output) / 1_000_000 * outputPerMillion)
+	breakdown.TotalUSD = normalizePrice(breakdown.UncachedInputUSD + breakdown.CacheReadUSD + breakdown.CacheCreationUSD + breakdown.OutputUSD)
 	return breakdown
 }

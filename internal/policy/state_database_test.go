@@ -206,6 +206,98 @@ func TestOpenStateDatabaseResumesPartialUsageEventMigration(t *testing.T) {
 	}
 }
 
+// TestOpenStateDatabaseMigratesVersionTwoSubscriptionSchema 验证版本二数据库升级后可持久化计划绑定和模型价格；t 提供测试生命周期。
+func TestOpenStateDatabaseMigratesVersionTwoSubscriptionSchema(t *testing.T) {
+	// path 是本用例创建的临时 SQLite 文件路径。
+	path := filepath.Join(t.TempDir(), "state.db")
+	// legacy 是按版本二结构打开的原始数据库；err 表示数据库操作错误。
+	legacy, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// statements 是构造版本二数据库所需的建表和元数据语句。
+	statements := []string{
+		`CREATE TABLE state_meta (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			schema_version INTEGER NOT NULL,
+			updated_at_ms INTEGER NOT NULL
+		)`,
+		`INSERT INTO state_meta (id, schema_version, updated_at_ms) VALUES (1, 2, 0)`,
+		`CREATE TABLE key_configs (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			enabled INTEGER NOT NULL,
+			key_hash TEXT NOT NULL,
+			key_preview TEXT NOT NULL DEFAULT '',
+			rpm INTEGER NOT NULL,
+			models_json BLOB NOT NULL,
+			allow_models_endpoint INTEGER NOT NULL,
+			daily_limit_usd REAL NOT NULL,
+			weekly_limit_usd REAL NOT NULL,
+			created_at_ms INTEGER NOT NULL,
+			updated_at_ms INTEGER NOT NULL
+		)`,
+	}
+	// statement 表示当前执行的版本二数据库语句。
+	for _, statement := range statements {
+		// err 表示当前数据库语句的执行错误。
+		if _, err := legacy.Exec(statement); err != nil {
+			_ = legacy.Close()
+			t.Fatal(err)
+		}
+	}
+	// err 表示关闭版本二数据库连接时发生的错误。
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// database 是经过当前迁移逻辑重新打开的状态数据库。
+	database, err := openStateDatabase(path, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.close()
+	// version 保存迁移完成后的数据库结构版本。
+	var version int
+	// err 表示读取数据库结构版本时发生的错误。
+	if err := database.db.QueryRow(`SELECT schema_version FROM state_meta WHERE id = 1`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != stateDatabaseVersion {
+		t.Fatalf("schema version = %d, want %d", version, stateDatabaseVersion)
+	}
+	// bindingColumn 保存 Key 配置表中计划绑定列的数量。
+	var bindingColumn int
+	// err 表示检查计划绑定列时发生的错误。
+	if err := database.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('key_configs') WHERE name = 'subscription_plan_id'`).Scan(&bindingColumn); err != nil {
+		t.Fatal(err)
+	}
+	if bindingColumn != 1 {
+		t.Fatal("subscription_plan_id column was not added")
+	}
+	// err 表示保存带模型价格的计划和 Key 绑定时发生的错误。
+	if err := database.saveStateWithPlans(
+		[]KeyConfig{{ID: "team-a", Name: "Team A", Enabled: true, SubscriptionPlanID: "standard"}},
+		[]SubscriptionPlan{{ID: "standard", Name: "Standard", Models: []ModelRule{{
+			Model:                    "gpt-5.4",
+			InputPricePerMillion:     2.5,
+			OutputPricePerMillion:    15,
+			CacheReadPricePerMillion: 0.25,
+		}}}},
+		nil,
+	); err != nil {
+		t.Fatal(err)
+	}
+	// keys 是重载后的 Key 配置；plans 是重载后的订阅计划；initialized 表示数据库已有状态；err 表示读取错误。
+	keys, plans, _, initialized, err := database.loadStateWithPlans()
+	if err != nil || !initialized || len(keys) != 1 || len(plans) != 1 ||
+		keys[0].SubscriptionPlanID != "standard" || plans[0].ID != "standard" ||
+		len(plans[0].Models) != 1 || plans[0].Models[0].InputPricePerMillion != 2.5 ||
+		plans[0].Models[0].OutputPricePerMillion != 15 || plans[0].Models[0].CacheReadPricePerMillion != 0.25 {
+		t.Fatalf("migrated subscription state: keys=%+v plans=%+v initialized=%v err=%v", keys, plans, initialized, err)
+	}
+}
+
 func TestOpenStateDatabaseSerializesConcurrentMigration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.db")
 	createLegacyStateDatabase(t, path)

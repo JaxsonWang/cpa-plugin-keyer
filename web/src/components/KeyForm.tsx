@@ -30,6 +30,10 @@ interface Props {
   dangerLabel?: string;
   onDanger?: () => void;
   onDraftChange?: (draft: KeyFormValues) => void;
+  /** entity 指定表单编辑普通 Key 还是订阅计划。 */
+  entity?: "key" | "plan";
+  /** policyNotice 是表单顶部展示的计划策略说明。 */
+  policyNotice?: string;
 }
 
 // Pricing for a single model, kept in form state alongside the selection.
@@ -68,6 +72,8 @@ export default function KeyForm({
   dangerLabel,
   onDanger,
   onDraftChange,
+  entity = "key",
+  policyNotice,
 }: Props) {
   const nav = useNavigate();
   const [id, setId] = useState(initial?.id ?? "");
@@ -79,6 +85,16 @@ export default function KeyForm({
   const [allowModels, setAllowModels] = useState<boolean>(initial?.allow_models_endpoint ?? false);
   const t = useT();
   const formID = useId();
+  // isPlan 表示当前是否在编辑订阅计划策略。
+  const isPlan = entity === "plan";
+  // idLabel 是当前实体使用的 ID 字段文案。
+  const idLabel = t(isPlan ? "keyForm.planIdLabel" : "keyForm.idLabel");
+  // idPlaceholder 是当前实体使用的 ID 输入提示。
+  const idPlaceholder = t(isPlan ? "keyForm.planIdPlaceholder" : "keyForm.idPlaceholder");
+  // nameLabel 是当前实体使用的名称字段文案。
+  const nameLabel = t(isPlan ? "keyForm.planNameLabel" : "keyForm.nameLabel");
+  // namePlaceholder 是当前实体使用的名称输入提示。
+  const namePlaceholder = t(isPlan ? "keyForm.planNamePlaceholder" : "keyForm.namePlaceholder");
 
   // Pricing table keyed by exact model name (case-insensitive) so it survives
   // picker re-emits.
@@ -234,7 +250,7 @@ export default function KeyForm({
     e.preventDefault();
     setLocalErr("");
     if (!id.trim()) {
-      setLocalErr(t("keyForm.idRequired"));
+      setLocalErr(t(isPlan ? "keyForm.planIdRequired" : "keyForm.idRequired"));
       return;
     }
     setBusy(true);
@@ -319,7 +335,7 @@ export default function KeyForm({
                   type="number"
                   inputMode="decimal"
                   min={0}
-                  step="0.01"
+                  step="any"
                   value={row.input_price_per_million}
                   onChange={(e) => setPrice(m, "input_price_per_million", e.target.value)}
                 />
@@ -333,7 +349,7 @@ export default function KeyForm({
                   type="number"
                   inputMode="decimal"
                   min={0}
-                  step="0.01"
+                  step="any"
                   value={row.output_price_per_million}
                   onChange={(e) => setPrice(m, "output_price_per_million", e.target.value)}
                 />
@@ -347,7 +363,7 @@ export default function KeyForm({
                   type="number"
                   inputMode="decimal"
                   min={0}
-                  step="0.01"
+                  step="any"
                   value={row.cache_read_price_per_million}
                   onChange={(e) => setPrice(m, "cache_read_price_per_million", e.target.value)}
                 />
@@ -415,7 +431,7 @@ export default function KeyForm({
                   type="number"
                   inputMode="decimal"
                   min={0}
-                  step="0.01"
+                  step="any"
                   value={row.input_price_per_million}
                   onChange={(e) => setPrice(m, "input_price_per_million", e.target.value)}
                 />
@@ -428,7 +444,7 @@ export default function KeyForm({
                   type="number"
                   inputMode="decimal"
                   min={0}
-                  step="0.01"
+                  step="any"
                   value={row.output_price_per_million}
                   onChange={(e) => setPrice(m, "output_price_per_million", e.target.value)}
                 />
@@ -441,7 +457,7 @@ export default function KeyForm({
                   type="number"
                   inputMode="decimal"
                   min={0}
-                  step="0.01"
+                  step="any"
                   value={row.cache_read_price_per_million}
                   onChange={(e) => setPrice(m, "cache_read_price_per_million", e.target.value)}
                 />
@@ -488,11 +504,12 @@ export default function KeyForm({
 
   return (
     <form className="card key-form" onSubmit={submit}>
+      {policyNotice && <div className="policy-notice" role="note">{policyNotice}</div>}
       <div className="mobile-only kf-sections">
         {section(t("keyForm.mobile.sectionBasic"), (
           <>
             <div className="form-row">
-              <label htmlFor={`${formID}-mobile-key-id`}>{t("keyForm.idLabel")}</label>
+              <label htmlFor={`${formID}-mobile-key-id`}>{idLabel}</label>
               <input
                 id={`${formID}-mobile-key-id`}
                 name="key_id"
@@ -502,11 +519,11 @@ export default function KeyForm({
                 readOnly={idReadOnly}
                 autoComplete="off"
                 spellCheck={false}
-                placeholder={t("keyForm.idPlaceholder")}
+                placeholder={idPlaceholder}
               />
             </div>
             <div className="form-row">
-              <label htmlFor={`${formID}-mobile-name`}>{t("keyForm.nameLabel")}</label>
+              <label htmlFor={`${formID}-mobile-name`}>{nameLabel}</label>
               <input
                 id={`${formID}-mobile-name`}
                 name="key_name"
@@ -514,16 +531,16 @@ export default function KeyForm({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 autoComplete="off"
-                placeholder={t("keyForm.namePlaceholder")}
+                placeholder={namePlaceholder}
               />
             </div>
-            <div className="form-row kf-switch-row">
+            {!isPlan && <div className="form-row kf-switch-row">
               <label className="switch">
                 <input name="enabled" type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
                 <span className="track"><span className="thumb" /></span>
                 <span>{t("keyForm.enableKey")}</span>
               </label>
-            </div>
+            </div>}
             <div className="form-row">
               <label htmlFor={`${formID}-mobile-rpm`}>{t("keyForm.rpmLabel")}</label>
               <input
@@ -649,7 +666,7 @@ export default function KeyForm({
       <div className="mobile-hidden">
       <div className="row2">
         <div className="form-row">
-          <label htmlFor={`${formID}-desktop-key-id`}>{t("keyForm.idLabel")}</label>
+          <label htmlFor={`${formID}-desktop-key-id`}>{idLabel}</label>
           <input
             id={`${formID}-desktop-key-id`}
             name="key_id"
@@ -659,11 +676,11 @@ export default function KeyForm({
             readOnly={idReadOnly}
             autoComplete="off"
             spellCheck={false}
-            placeholder={t("keyForm.idPlaceholder")}
+            placeholder={idPlaceholder}
           />
         </div>
         <div className="form-row">
-          <label htmlFor={`${formID}-desktop-name`}>{t("keyForm.nameLabel")}</label>
+          <label htmlFor={`${formID}-desktop-name`}>{nameLabel}</label>
           <input
             id={`${formID}-desktop-name`}
             name="key_name"
@@ -671,7 +688,7 @@ export default function KeyForm({
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoComplete="off"
-            placeholder={t("keyForm.namePlaceholder")}
+            placeholder={namePlaceholder}
           />
         </div>
       </div>
@@ -689,7 +706,7 @@ export default function KeyForm({
             onChange={(e) => setRpm(parseInt(e.target.value || "0", 10) || 0)}
           />
         </div>
-        <div className="form-row">
+        {!isPlan && <div className="form-row">
           <span className="field-label">{t("keyForm.statusLabel")}</span>
           <label className="switch">
             <input
@@ -701,7 +718,7 @@ export default function KeyForm({
             <span className="track"><span className="thumb" /></span>
             <span>{t("keyForm.enableKey")}</span>
           </label>
-        </div>
+        </div>}
       </div>
 
       <div className="row2">

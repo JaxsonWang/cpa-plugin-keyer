@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import { fetchUsageAnalysis, fetchUsageOverview } from "../api/usage";
 import { listKeys } from "../api/keys";
 import KeyQuotaChart from "../components/KeyQuotaChart";
@@ -43,9 +42,13 @@ import {
   isUnrecordedDimension,
   successRate,
 } from "../utils/usageFormat";
-import { patchSearchParams, readUsageRange } from "../utils/usageSearchParams";
+import { readUsageRange } from "../utils/usageSearchParams";
 import { getSession, isViewerSession } from "../store/session";
+import { useRememberedUsageFilters } from "../store/usageFilterMemory";
 import { APP_VERSION } from "../version";
+
+// OVERVIEW_FILTER_NAMES 是概览页需要跨刷新记忆的筛选字段。
+const OVERVIEW_FILTER_NAMES = ["range", "key_id"] as const;
 
 interface DashboardData {
   analysis: UsageAnalysisResponse;
@@ -58,11 +61,16 @@ function messageOf(error: unknown, fallback: string): string {
   return typed.response?.data?.error?.message ?? typed.message ?? fallback;
 }
 
+/**
+ * 渲染概览页首屏加载骨架。
+ * @returns 返回两块主要指标、四块次要指标和图表占位。
+ */
 function DashboardSkeleton() {
   return (
     <div className="dashboard-skeleton" aria-hidden="true">
       <div className="dashboard-skeleton-metrics">
-        {Array.from({ length: 8 }, (_, index) => <span key={index} className={index < 2 ? "wide" : ""} />)}
+        {/* _ 表示未使用的数组项，index 表示当前指标占位位置。 */}
+        {Array.from({ length: 6 }, (_, index) => <span key={index} className={index < 2 ? "wide" : ""} />)}
       </div>
       <div className="dashboard-skeleton-charts"><span /><span /><span /></div>
     </div>
@@ -153,7 +161,10 @@ function ModelEfficiency({ data }: { data: UsageAnalysisResponse }) {
 export default function UsageOverview() {
   const t = useT();
   const viewer = isViewerSession(getSession());
-  const [searchParams, setSearchParams] = useSearchParams();
+  // filterScope 区分管理模式和 Viewer 模式的概览筛选记忆。
+  const filterScope = viewer ? "overview-viewer" : "overview-management";
+  // searchParams 是恢复记忆后的筛选参数；updateQuery 同步路由和本地记忆。
+  const [searchParams, updateQuery] = useRememberedUsageFilters(filterScope, OVERVIEW_FILTER_NAMES);
   const range = readUsageRange(searchParams);
   const keyID = searchParams.get("key_id") ?? "";
   const [data, setData] = useState<DashboardData | null>(null);
@@ -220,9 +231,6 @@ export default function UsageOverview() {
   const authRows = analysis ? labelDimensionRows(analysis.by_auth_type) : [];
   const sourceRows = analysis ? labelDimensionRows(analysis.by_source) : [];
   const serviceTierRows = analysis ? labelDimensionRows(analysis.by_service_tier) : [];
-  const updateQuery = (values: Readonly<Record<string, string | number | undefined>>) => {
-    setSearchParams(patchSearchParams(searchParams, values), { replace: true });
-  };
   const visibleKeys = keyID ? keys.filter((key) => key.id === keyID) : keys;
   const limitedKeys = visibleKeys.filter((key) => key.daily_limit_usd > 0 || key.weekly_limit_usd > 0);
   const overQuotaKeys = limitedKeys.filter((key) => (

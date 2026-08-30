@@ -94,7 +94,13 @@
     "statModels": "Allowed models",
     "statModelsHint": "Unique model ids",
     "statSpend": "Today spend",
-    "statSpendHint": "Across all keys"
+    "statSpendHint": "Across all keys",
+    "colPlan": "Subscription plan",
+    "planSelect": "Change subscription plan for Key {{id}}",
+    "noPlan": "No plan",
+    "planUpdateFailed": "Failed to update subscription plan",
+    "planControlsLimits": "This Key's usage limits are managed by its subscription plan; edit the plan instead",
+    "expired": "Expired"
   },
   "edit": {
     "hTitle": "Edit Key",
@@ -102,7 +108,8 @@
     "notFound": "Not found",
     "save": "Save changes",
     "eyebrow": "Policy configuration",
-    "pageHint": "Adjust access boundaries, rate limits, and model pricing. "
+    "pageHint": "Adjust access boundaries, rate limits, and model pricing. ",
+    "planOverrideNotice": "Currently bound to “{{plan}}”. The individual Key policy below is retained but takes effect only after unbinding."
   },
   "new": {
     "title": "New Key",
@@ -161,7 +168,12 @@
     "syncingPrice": "Syncing…",
     "syncPriceDone": "Synced {{matched}} / {{total}} models; unmatched rows were unchanged.",
     "syncPriceFailed": "Price sync failed",
-    "syncPriceError": "Sync failed: {{message}}"
+    "syncPriceError": "Sync failed: {{message}}",
+    "planIdLabel": "Plan ID *",
+    "planIdPlaceholder": "e.g. team-standard",
+    "planNameLabel": "Plan name",
+    "planNamePlaceholder": "e.g. Team Standard",
+    "planIdRequired": "Plan id is required"
   },
   "picker": {
     "title": "Select models",
@@ -403,5 +415,52 @@
     "confirmTitle": "Confirm this action",
     "cancel": "Cancel",
     "processing": "Processing…"
+  },
+  "theme": {
+    "label": "Theme",
+    "auto": "Auto",
+    "light": "Day",
+    "dark": "Night"
+  },
+  "plans": {
+    "title": "Subscription Plans",
+    "pageHint": "Manage model access, expiration, RPM, and usage limits once, then apply them to every bound Key.",
+    "new": "New plan",
+    "loading": "Loading…",
+    "loadFailed": "Failed to load subscription plans",
+    "emptyTitle": "No subscription plans yet",
+    "emptyHint": "Create a plan to reuse one access policy from the plan editor or directly in the Key list.",
+    "newTitle": "New subscription plan",
+    "editTitle": "Edit subscription plan",
+    "formHint": "Plan settings immediately control every bound Key; each Key keeps its own policy for use after unbinding.",
+    "policyNotice": "This plan centrally owns models, RPM, daily and weekly limits, and /v1/models access. Saving applies it to all bound Keys immediately.",
+    "notFound": "Subscription plan not found",
+    "create": "Create plan",
+    "save": "Save plan",
+    "edit": "Edit",
+    "delete": "Delete",
+    "deleteFailed": "Failed to delete subscription plan",
+    "deleteConfirm": "Delete subscription plan “{{name}}”? Its {{count}} bound Keys will be unbound and resume their individual policies.",
+    "active": "Active",
+    "expired": "Expired",
+    "rpm": "RPM",
+    "daily": "Daily limit",
+    "weekly": "Weekly limit",
+    "models": "Models",
+    "expiry": "Expires",
+    "neverExpires": "Never",
+    "modelsEndpoint": "/v1/models",
+    "allowed": "Allowed",
+    "blocked": "Blocked",
+    "boundKeys": "{{count}} bound Keys",
+    "noBoundKeys": "No bound Keys",
+    "expiryLabel": "Expiration time (optional)",
+    "expiryHint": "Leave empty for no expiration. Requests from bound Keys are rejected after this time.",
+    "bindKeysLabel": "Bind Keys",
+    "selectAllKeys": "Select all",
+    "deselectAllKeys": "Clear all",
+    "searchKeys": "Search Key name, ID, or preview…",
+    "selectedKeys": "{{count}} Keys selected",
+    "noMatchingKeys": "No matching Keys."
   }
 }

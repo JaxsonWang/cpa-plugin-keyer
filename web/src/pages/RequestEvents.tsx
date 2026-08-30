@@ -1,5 +1,4 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import { fetchUsageEvents } from "../api/usage";
 import UsageControls from "../components/UsageControls";
 import { useT } from "../i18n";
@@ -8,43 +7,71 @@ import {
   formatAuthIndex,
   formatCount,
   formatDuration,
-  formatExecutorName,
   formatMappedDimensionName,
   formatRate,
   formatRequestUSD,
   tokensPerSecond,
 } from "../utils/usageFormat";
-import { patchSearchParams, readPositivePage, readUsageRange } from "../utils/usageSearchParams";
+import { readPositivePage, readUsageRange } from "../utils/usageSearchParams";
+import { getSession, isViewerSession } from "../store/session";
+import { useRememberedUsageFilters } from "../store/usageFilterMemory";
 import { APP_VERSION } from "../version";
 
+// EVENT_FILTER_NAMES 是请求事件页需要跨刷新记忆的筛选字段，分页不作为筛选记忆。
+const EVENT_FILTER_NAMES = ["range", "key_id", "provider", "result"] as const;
+
+/**
+ * 从接口错误中读取可展示消息。
+ * @param error 表示接口抛出的未知错误。
+ * @param fallback 表示接口未携带消息时使用的文案。
+ * @returns 返回当前页面可展示的错误文本。
+ */
 function messageOf(error: unknown, fallback: string): string {
+  // typed 是带有 Axios 错误响应字段的局部错误视图。
   const typed = error as { response?: { data?: { error?: { message?: string } } }; message?: string };
   return typed.response?.data?.error?.message ?? typed.message ?? fallback;
 }
 
+/**
+ * 计算单条请求事件的缓存命中率和输出速度。
+ * @param event 表示当前请求事件。
+ * @returns 返回缓存 Token、缓存命中率和每秒输出 Token。
+ */
 function usageEventStats(event: UsageEvent) {
+  // cached 是兼容两类事件字段后得到的缓存读取 Token 数。
   const cached = Math.max(event.cache_read_tokens ?? 0, event.cached_tokens ?? 0);
+  // cacheRate 是按输入 Token 计算的缓存命中率文本。
   const cacheRate = event.input_tokens
     ? `${(Math.min(1, cached / event.input_tokens) * 100).toFixed(1)}%`
     : "—";
+  // speedTPS 是扣除首字延迟后得到的每秒输出 Token 数。
   const speedTPS = tokensPerSecond(event.output_tokens, event.latency_ms, event.ttft_ms);
   return { cached, cacheRate, speedTPS };
 }
 
+/** 渲染支持筛选记忆和事件详情展开的请求事件页面。 */
 export default function RequestEvents() {
+  // t 负责读取当前语言的界面文案。
   const t = useT();
-  const [searchParams, setSearchParams] = useSearchParams();
+  // viewer 表示当前是否为单 Key Viewer 会话。
+  const viewer = isViewerSession(getSession());
+  // filterScope 区分管理模式和 Viewer 模式的请求事件筛选记忆。
+  const filterScope = viewer ? "events-viewer" : "events-management";
+  // searchParams 是恢复记忆后的筛选参数；updateQuery 同步路由和本地记忆。
+  const [searchParams, updateQuery] = useRememberedUsageFilters(filterScope, EVENT_FILTER_NAMES);
+  // range 是当前查询使用的统计时间范围。
   const range = readUsageRange(searchParams);
+  // keyID 是管理模式下选中的 Key ID 筛选值。
   const keyID = searchParams.get("key_id") ?? "";
+  // provider 是当前选中的上游来源筛选值。
   const provider = searchParams.get("provider") ?? "";
+  // resultParam 是 URL 中尚未校验的请求结果筛选值。
   const resultParam = searchParams.get("result");
+  // result 是限制为成功、失败或全部的有效结果筛选值。
   const result: "" | "success" | "failed" = resultParam === "success" || resultParam === "failed" ? resultParam : "";
+  // page 是当前请求事件分页页码。
   const page = readPositivePage(searchParams);
-  const executorLabel = (value?: string) => formatExecutorName(
-    value,
-    t("usage.unrecorded"),
-    t("usage.executorLabels.codex"),
-  );
+  // runtimeLabels 保存运行时字段到当前语言显示文本的映射。
   const runtimeLabels = {
     apikey: t("usage.runtimeLabels.apikey"),
     oauth: t("usage.runtimeLabels.oauth"),
@@ -59,20 +86,28 @@ export default function RequestEvents() {
     minimal: t("usage.runtimeLabels.minimal"),
     none: t("usage.runtimeLabels.none"),
   };
+  // runtimeLabel 将认证、来源、层级和推理强度转换为界面文案；value 是原始运行时字符串。
   const runtimeLabel = (value?: string) => formatMappedDimensionName(value, t("usage.unrecorded"), runtimeLabels);
+  // authReference 拼接认证类型和认证序号；event 是当前请求事件。
   const authReference = (event: UsageEvent) => [
     event.auth_type ? runtimeLabel(event.auth_type) : "",
     formatAuthIndex(event.auth_index),
   ].filter(Boolean).join(" · ") || "—";
+  // executionReference 保留执行器原始字符串并拼接认证引用；event 是当前请求事件。
   const executionReference = (event: UsageEvent) => [
-    event.executor_type ? executorLabel(event.executor_type) : "",
+    event.executor_type ?? "",
     authReference(event),
   ].filter((value) => value && value !== "—").join(" · ") || "—";
+  // expandedEventID 是当前展开详情的事件 ID；setExpandedEventID 更新展开状态。
   const [expandedEventID, setExpandedEventID] = useState<number | null>(null);
+  // data 保存请求事件接口响应；setData 更新当前页面数据。
   const [data, setData] = useState<UsageEventsResponse | null>(null);
+  // loading 表示页面是否正在加载；setLoading 更新加载状态。
   const [loading, setLoading] = useState(true);
+  // error 保存页面错误；setError 更新错误信息。
   const [error, setError] = useState("");
 
+  // load 根据当前筛选和分页重新读取请求事件。
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -86,6 +121,7 @@ export default function RequestEvents() {
         page_size: 50,
       }));
     } catch (cause) {
+      // cause 表示请求事件接口抛出的错误。
       setError(messageOf(cause, t("usage.loadFailed")));
     } finally {
       setLoading(false);
@@ -95,10 +131,6 @@ export default function RequestEvents() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const updateQuery = (values: Readonly<Record<string, string | number | undefined>>) => {
-    setSearchParams(patchSearchParams(searchParams, values), { replace: true });
-  };
 
   return (
     <div className="usage-page events-page">

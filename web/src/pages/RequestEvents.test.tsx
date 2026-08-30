@@ -17,6 +17,7 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
   _resetLocale("zh-CN");
+  localStorage.clear();
   container = document.createElement("div");
   document.body.appendChild(container);
 });
@@ -82,7 +83,7 @@ describe("RequestEvents", () => {
       await tick();
     });
     expect(container.textContent).toContain("team-a");
-    expect(container.querySelector(".page-heading > span")?.textContent).toBe("KEYER USAGE · v0.7.9");
+    expect(container.querySelector(".page-heading > span")?.textContent).toBe("KEYER USAGE · v0.7.10");
     expect(container.textContent).toContain("cpa_*****wxyz");
     expect(container.textContent).toContain("codex");
     expect(container.textContent).toContain("实际模型: gpt-5.4-2026-08-01");
@@ -118,7 +119,7 @@ describe("RequestEvents", () => {
     });
     expect(container.querySelector(".event-detail-grid")?.textContent).toContain("500 · 50.0%");
     expect(container.querySelector(".event-detail-grid")?.textContent).toContain("优先级");
-    expect(container.querySelector(".event-detail-grid")?.textContent).toContain("Codex 执行器 · API Key · 2");
+    expect(container.querySelector(".event-detail-grid")?.textContent).toContain("CodexExecutor · API Key · 2");
     expect(container.querySelector(".event-detail-grid")?.children).toHaveLength(12);
   });
 

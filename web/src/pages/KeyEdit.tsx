@@ -48,7 +48,9 @@ export default function KeyEdit() {
   const picked = (loc.state as { pickedModels?: ModelRule[] } | null)?.pickedModels;
   const initial = useMemo<KeyPublic | KeyFormValues | null>(() => {
     if (!key) return null;
-    const draft = readKeyDraft(draftKey) ?? key;
+    // base 是优先使用 Key 自有配置的编辑基线，避免把计划覆盖值写回 Key。
+    const base = key.base_policy ? { ...key, ...key.base_policy } : key;
+    const draft = readKeyDraft(draftKey) ?? base;
     return picked ? { ...draft, models: picked } : draft;
   }, [draftKey, key, picked]);
   const saveDraft = useCallback(
@@ -130,6 +132,9 @@ export default function KeyEdit() {
         initial={initial}
         idReadOnly
         pickPath={`/keys/${encodeURIComponent(key.id)}/edit/models`}
+        policyNotice={key.subscription_plan_id
+          ? t("edit.planOverrideNotice", { plan: key.subscription_plan_name || key.subscription_plan_id })
+          : undefined}
         submitLabel={t("edit.save")}
         error={actionError}
         onDraftChange={saveDraft}

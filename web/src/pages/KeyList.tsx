@@ -9,7 +9,8 @@ import {
   rotateKey,
   setKeyEnabled,
 } from "../api/keys";
-import type { KeyPublic } from "../types";
+import { listSubscriptionPlans, setKeySubscriptionPlan } from "../api/subscriptionPlans";
+import type { KeyPublic, SubscriptionPlan } from "../types";
 import PlainKeyModal from "../components/PlainKeyModal";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { useT } from "../i18n";
@@ -28,9 +29,23 @@ function replaceKey(keys: KeyPublic[], updated: KeyPublic): KeyPublic[] {
   return keys.map((key) => (key.id === updated.id ? updated : key));
 }
 
+/**
+ * 判断 Key 绑定的订阅计划是否已经到期。
+ * @param key 表示需要检查的 Key。
+ * @returns 返回计划是否存在有效到期时间且已经过期。
+ */
+function subscriptionExpired(key: KeyPublic): boolean {
+  if (!key.subscription_expires_at) return false;
+  // expiresAt 是计划到期时间对应的毫秒时间戳。
+  const expiresAt = new Date(key.subscription_expires_at).getTime();
+  return Number.isFinite(expiresAt) && expiresAt <= Date.now();
+}
+
 export default function KeyList() {
   const t = useT();
   const [keys, setKeys] = useState<KeyPublic[]>([]);
+  // plans 保存 Key 列表可绑定的全部订阅计划；setPlans 更新计划列表。
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [selectedIDs, setSelectedIDs] = useState<Set<string>>(new Set());
   const [updatingIDs, setUpdatingIDs] = useState<Set<string>>(new Set());
   const [resettingUsage, setResettingUsage] = useState(false);
@@ -47,9 +62,11 @@ export default function KeyList() {
     setLoading(true);
     setError("");
     try {
-      const nextKeys = await listKeys();
+      // nextKeys 保存最新 Key；nextPlans 保存最新订阅计划。
+      const [nextKeys, nextPlans] = await Promise.all([listKeys(), listSubscriptionPlans()]);
       const liveIDs = new Set(nextKeys.map((key) => key.id));
       setKeys(nextKeys);
+      setPlans(nextPlans);
       setSelectedIDs((current) => new Set([...current].filter((id) => liveIDs.has(id))));
     } catch (error) {
       setError(errorMessage(error, t("keys.loadFailed")));
@@ -199,6 +216,28 @@ export default function KeyList() {
     }
   };
 
+  /**
+   * 从 Key 列表修改一个 Key 的订阅计划并更新当前行。
+   * @param id 表示待修改的 Key ID。
+   * @param planID 表示目标计划 ID，空字符串表示解除绑定。
+   */
+  const onSetSubscriptionPlan = async (id: string, planID: string) => {
+    setError("");
+    setUpdatingIDs((current) => new Set(current).add(id));
+    try {
+      const updated = await setKeySubscriptionPlan(id, planID);
+      setKeys((current) => replaceKey(current, updated));
+    } catch (error) {
+      setError(`${id}: ${errorMessage(error, t("keys.planUpdateFailed"))}`);
+    } finally {
+      setUpdatingIDs((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
   const onBatchSetEnabled = async (enabled: boolean) => {
     const ids = keys.filter((key) => selectedIDs.has(key.id)).map((key) => key.id);
     if (ids.length === 0) return;
@@ -230,6 +269,10 @@ export default function KeyList() {
   const allSelected = keys.length > 0 && selectedIDs.size === keys.length;
   const partiallySelected = selectedIDs.size > 0 && !allSelected;
   const busy = updatingIDs.size > 0 || resettingUsage;
+  // selectedKeys 保存当前批量操作选中的 Key。
+  const selectedKeys = keys.filter((key) => selectedIDs.has(key.id));
+  // selectedHasPlan 表示选中项中是否存在由计划统一管理限额的 Key。
+  const selectedHasPlan = selectedKeys.some((key) => !!key.subscription_plan_id);
   const enabledCount = keys.filter((key) => key.enabled).length;
   const modelCount = new Set(keys.flatMap((key) => key.models.map((model) => model.model.toLowerCase()))).size;
   const dailySpend = keys.reduce((total, key) => total + (key.usage.daily_usd ?? 0), 0);
@@ -315,10 +358,11 @@ export default function KeyList() {
             </button>
             <button
               className="btn sm danger-outline"
-              disabled={selectedIDs.size === 0 || busy}
+              disabled={selectedIDs.size === 0 || busy || selectedHasPlan}
+              title={selectedHasPlan ? t("keys.planControlsLimits") : undefined}
               onClick={() => setPendingAction({
                 type: "batchResetLimits",
-                ids: keys.filter((key) => selectedIDs.has(key.id)).map((key) => key.id),
+                ids: selectedKeys.map((key) => key.id),
               })}
             >
               {t("keys.batchResetLimits")}
@@ -347,11 +391,13 @@ export default function KeyList() {
             keys={keys}
             selectedIDs={selectedIDs}
             updatingIDs={updatingIDs}
+            plans={plans}
             allSelected={allSelected}
             partiallySelected={partiallySelected}
             onToggleAll={onToggleAll}
             onToggleSelected={onToggleSelected}
             onSetEnabled={onSetEnabled}
+            onSetSubscriptionPlan={onSetSubscriptionPlan}
             onDelete={(id) => setPendingAction({ type: "delete", id })}
             onRotate={(id) => setPendingAction({ type: "rotate", id })}
             onResetRPM={onReset}
@@ -364,8 +410,10 @@ export default function KeyList() {
                 item={key}
                 selected={selectedIDs.has(key.id)}
                 updating={updatingIDs.has(key.id)}
+                plans={plans}
                 onToggleSelected={onToggleSelected}
                 onSetEnabled={onSetEnabled}
+                onSetSubscriptionPlan={onSetSubscriptionPlan}
                 onDelete={(id) => setPendingAction({ type: "delete", id })}
               />
             ))}
@@ -436,6 +484,8 @@ function KeyStatusSwitch({
   onChange: (enabled: boolean) => void;
 }) {
   const t = useT();
+  // expired 表示当前 Key 绑定的订阅计划是否已到期。
+  const expired = subscriptionExpired(item);
   return (
     <label
       className="switch key-status-switch"
@@ -452,7 +502,7 @@ function KeyStatusSwitch({
       />
       <span className="track"><span className="thumb" /></span>
       <span className="key-status-label">
-        {updating ? t("keys.updating") : t(item.enabled ? "keys.enabled" : "keys.disabled")}
+        {updating ? t("keys.updating") : t(expired ? "keys.expired" : item.enabled ? "keys.enabled" : "keys.disabled")}
       </span>
     </label>
   );
@@ -462,11 +512,13 @@ function KeyTable({
   keys,
   selectedIDs,
   updatingIDs,
+  plans,
   allSelected,
   partiallySelected,
   onToggleAll,
   onToggleSelected,
   onSetEnabled,
+  onSetSubscriptionPlan,
   onDelete,
   onRotate,
   onResetRPM,
@@ -475,11 +527,13 @@ function KeyTable({
   keys: KeyPublic[];
   selectedIDs: Set<string>;
   updatingIDs: Set<string>;
+  plans: SubscriptionPlan[];
   allSelected: boolean;
   partiallySelected: boolean;
   onToggleAll: () => void;
   onToggleSelected: (id: string) => void;
   onSetEnabled: (id: string, enabled: boolean) => void;
+  onSetSubscriptionPlan: (id: string, planID: string) => void;
   onDelete: (id: string) => void;
   onRotate: (id: string) => void;
   onResetRPM: (id: string) => void;
@@ -501,6 +555,7 @@ function KeyTable({
             </th>
             <th>{t("keys.colIdName")}</th>
             <th>{t("keys.colPreview")}</th>
+            <th>{t("keys.colPlan")}</th>
             <th>{t("keys.colStatus")}</th>
             <th className="num">{t("keys.colRpm")}</th>
             <th>{t("keys.colUsage")}</th>
@@ -526,6 +581,18 @@ function KeyTable({
               </td>
               <td><span className="mono key-preview">{key.key_preview}</span></td>
               <td>
+                <select
+                  className="key-plan-select"
+                  aria-label={t("keys.planSelect", { id: key.id })}
+                  value={key.subscription_plan_id ?? ""}
+                  disabled={updatingIDs.has(key.id)}
+                  onChange={(event) => void onSetSubscriptionPlan(key.id, event.target.value)}
+                >
+                  <option value="">{t("keys.noPlan")}</option>
+                  {plans.map((plan) => <option key={plan.id} value={plan.id}>{plan.name || plan.id}</option>)}
+                </select>
+              </td>
+              <td>
                 <KeyStatusSwitch
                   item={key}
                   updating={updatingIDs.has(key.id)}
@@ -544,7 +611,14 @@ function KeyTable({
                     {t("keys.edit")}
                   </Link>
                   <button className="btn sm" onClick={() => onResetRPM(key.id)}>{t("keys.resetRpm")}</button>
-                  <button className="btn sm danger-outline" onClick={() => onResetLimits(key.id)}>{t("keys.resetLimits")}</button>
+                  <button
+                    className="btn sm danger-outline"
+                    disabled={!!key.subscription_plan_id}
+                    title={key.subscription_plan_id ? t("keys.planControlsLimits") : undefined}
+                    onClick={() => onResetLimits(key.id)}
+                  >
+                    {t("keys.resetLimits")}
+                  </button>
                   <button className="btn sm" onClick={() => onRotate(key.id)}>{t("keys.rotate")}</button>
                   <button className="btn sm danger-outline" onClick={() => onDelete(key.id)}>{t("keys.delete")}</button>
                 </div>
@@ -576,15 +650,19 @@ function KeyCard({
   item,
   selected,
   updating,
+  plans,
   onToggleSelected,
   onSetEnabled,
+  onSetSubscriptionPlan,
   onDelete,
 }: {
   item: KeyPublic;
   selected: boolean;
   updating: boolean;
+  plans: SubscriptionPlan[];
   onToggleSelected: (id: string) => void;
   onSetEnabled: (id: string, enabled: boolean) => void;
+  onSetSubscriptionPlan: (id: string, planID: string) => void;
   onDelete: (id: string) => void;
 }) {
   const t = useT();
@@ -615,6 +693,18 @@ function KeyCard({
         />
       </div>
       <div className="kc-preview">{item.key_preview}</div>
+      <label className="kc-plan-field">
+        <span>{t("keys.colPlan")}</span>
+        <select
+          aria-label={t("keys.planSelect", { id: item.id })}
+          value={item.subscription_plan_id ?? ""}
+          disabled={updating}
+          onChange={(event) => onSetSubscriptionPlan(item.id, event.target.value)}
+        >
+          <option value="">{t("keys.noPlan")}</option>
+          {plans.map((plan) => <option key={plan.id} value={plan.id}>{plan.name || plan.id}</option>)}
+        </select>
+      </label>
       {limit > 0 && (
         <>
           <div className="kc-bar"><span style={{ width: `${pct}%` }} /></div>

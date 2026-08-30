@@ -36,6 +36,7 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
   _resetLocale("zh-CN");
+  localStorage.clear();
   container = document.createElement("div");
   document.body.appendChild(container);
 });
@@ -48,6 +49,22 @@ afterEach(() => {
 });
 
 describe("UsageOverview", () => {
+  // 以下用例回调验证共享概览骨架不再渲染突兀的末尾两个指标占位块。
+  it("keeps the initial metric skeleton to two wide and four compact blocks", async () => {
+    // 以下三个未完成请求让页面保持在首屏骨架状态。
+    vi.mocked(fetchUsageOverview).mockReturnValue(new Promise<never>(() => {}));
+    vi.mocked(fetchUsageAnalysis).mockReturnValue(new Promise<never>(() => {}));
+    vi.mocked(listKeys).mockReturnValue(new Promise<never>(() => {}));
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<MemoryRouter><UsageOverview /></MemoryRouter>);
+      await Promise.resolve();
+    });
+
+    expect(container.querySelectorAll(".dashboard-skeleton-metrics > span")).toHaveLength(6);
+    expect(container.querySelectorAll(".dashboard-skeleton-metrics > span.wide")).toHaveLength(2);
+  });
+
   it("renders the quota dashboard for management and hides it for viewer sessions", async () => {
     vi.mocked(listKeys).mockResolvedValue([
       {
@@ -142,7 +159,7 @@ describe("UsageOverview", () => {
     expect(fetchUsageAnalysis).toHaveBeenCalledWith({ range: "7d", key_id: "" });
     expect(listKeys).toHaveBeenCalledOnce();
     expect(container.querySelector("h1")?.textContent).toBe("概览");
-    expect(container.querySelector(".page-heading > span")?.textContent).toBe("KEYER USAGE · v0.7.9");
+    expect(container.querySelector(".page-heading > span")?.textContent).toBe("KEYER USAGE · v0.7.10");
     expect(container.querySelectorAll(".dashboard-kpi")).toHaveLength(8);
     expect(container.textContent).toContain("请求与 Token 趋势");
     expect(container.textContent).toContain("Token 构成趋势");

@@ -94,7 +94,13 @@
     "statModels": "授权模型",
     "statModelsHint": "去重后的模型数",
     "statSpend": "今日用量",
-    "statSpendHint": "全部密钥累计"
+    "statSpendHint": "全部密钥累计",
+    "colPlan": "订阅计划",
+    "planSelect": "修改 Key {{id}} 的订阅计划",
+    "noPlan": "不使用计划",
+    "planUpdateFailed": "订阅计划更新失败",
+    "planControlsLimits": "该 Key 的用量上限由订阅计划统一管理，请编辑订阅计划",
+    "expired": "已到期"
   },
   "edit": {
     "hTitle": "编辑 Key",
@@ -102,7 +108,8 @@
     "notFound": "未找到",
     "save": "保存修改",
     "eyebrow": "策略配置",
-    "pageHint": "调整访问边界、速率限制与模型计价。"
+    "pageHint": "调整访问边界、速率限制与模型计价。",
+    "planOverrideNotice": "当前绑定订阅计划「{{plan}}」。下方单 Key 策略会保留，但仅在解绑后生效。"
   },
   "new": {
     "title": "新建 Key",
@@ -161,7 +168,12 @@
     "syncingPrice": "同步中…",
     "syncPriceDone": "已同步 {{matched}} / {{total}} 个模型；未匹配项保持原价。",
     "syncPriceFailed": "价格同步失败",
-    "syncPriceError": "同步失败：{{message}}"
+    "syncPriceError": "同步失败：{{message}}",
+    "planIdLabel": "计划 ID *",
+    "planIdPlaceholder": "例如 team-standard",
+    "planNameLabel": "计划名称",
+    "planNamePlaceholder": "例如团队标准版",
+    "planIdRequired": "计划 id 不能为空"
   },
   "picker": {
     "title": "选择模型",
@@ -403,5 +415,52 @@
     "confirmTitle": "确认执行此操作",
     "cancel": "取消",
     "processing": "处理中…"
+  },
+  "theme": {
+    "label": "主题",
+    "auto": "自动",
+    "light": "白天",
+    "dark": "黑夜"
+  },
+  "plans": {
+    "title": "订阅计划",
+    "pageHint": "集中维护模型权限、到期时间、RPM 与用量上限，并统一应用到已绑定 Key。",
+    "new": "新建订阅计划",
+    "loading": "加载中…",
+    "loadFailed": "订阅计划加载失败",
+    "emptyTitle": "还没有订阅计划",
+    "emptyHint": "创建一个计划后，即可从计划页或 Key 列表批量复用同一组访问策略。",
+    "newTitle": "新建订阅计划",
+    "editTitle": "编辑订阅计划",
+    "formHint": "计划参数会实时接管所有已绑定 Key；Key 自身的策略保留为解绑后的回退配置。",
+    "policyNotice": "模型、RPM、日/周上限和 /v1/models 权限由此计划统一维护。保存后所有已绑定 Key 立即生效。",
+    "notFound": "未找到该订阅计划",
+    "create": "创建计划",
+    "save": "保存计划",
+    "edit": "编辑",
+    "delete": "删除",
+    "deleteFailed": "订阅计划删除失败",
+    "deleteConfirm": "确认删除订阅计划「{{name}}」？已绑定的 {{count}} 个 Key 将自动解绑并恢复各自原有策略。",
+    "active": "生效中",
+    "expired": "已到期",
+    "rpm": "RPM",
+    "daily": "每日上限",
+    "weekly": "每周上限",
+    "models": "模型",
+    "expiry": "到期时间",
+    "neverExpires": "永不过期",
+    "modelsEndpoint": "/v1/models",
+    "allowed": "允许访问",
+    "blocked": "禁止访问",
+    "boundKeys": "已绑定 {{count}} 个 Key",
+    "noBoundKeys": "暂未绑定",
+    "expiryLabel": "到期时间（可选）",
+    "expiryHint": "留空表示永不过期；到期后绑定 Key 的请求会被拒绝。",
+    "bindKeysLabel": "绑定 Key",
+    "selectAllKeys": "全选",
+    "deselectAllKeys": "取消全选",
+    "searchKeys": "搜索 Key 名称、ID 或预览…",
+    "selectedKeys": "已选择 {{count}} 个 Key",
+    "noMatchingKeys": "没有匹配的 Key。"
   }
 }

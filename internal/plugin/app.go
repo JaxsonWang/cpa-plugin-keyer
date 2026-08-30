@@ -167,6 +167,8 @@ func isWebSocketUpgrade(headers http.Header) bool {
 	return false
 }
 
+// interceptRequestBefore 在请求转发前执行模型策略，并确保按次计价已经同步提交到 SQLite。
+// raw 是宿主传入的请求拦截数据，返回值是拦截响应及明确的处理错误。
 func (a *App) interceptRequestBefore(raw []byte) ([]byte, error) {
 	var req RequestInterceptRequest
 	if err := json.Unmarshal(raw, &req); err != nil {
@@ -187,6 +189,11 @@ func (a *App) interceptRequestBefore(raw []byte) ([]byte, error) {
 				model = decision.Requested
 			}
 			a.store.RecordUsage(decision.KeyID, model, model, false, policy.UsageDetail{})
+			// usageErr 是按次计价同步落库的结果。
+			usageErr := a.store.UsageStoreError()
+			if usageErr != nil {
+				return nil, usageErr
+			}
 		}
 		return OKEnvelope(RequestInterceptResponse{})
 	}
@@ -227,6 +234,8 @@ func policyErrorBody(reason, model string) []byte {
 		message = "daily budget exceeded"
 	case "weekly_exceeded":
 		message = "weekly budget exceeded"
+	case "subscription_expired":
+		message = "subscription plan has expired"
 	case "key_disabled":
 		message = "key is disabled"
 	}
@@ -284,6 +293,11 @@ func (a *App) managementRegistration() ManagementRegistrationResponse {
 			{Method: http.MethodPost, Path: base + "/keys/reset-rpm", Description: "Reset one downstream CPA key RPM counter by id."},
 			{Method: http.MethodPost, Path: base + "/keys/reset-usage", Description: "Reset daily and weekly usage for all downstream CPA keys."},
 			{Method: http.MethodGet, Path: base + "/keys/usage", Description: "Per-model usage breakdown for one downstream CPA key by id."},
+			{Method: http.MethodPatch, Path: base + "/keys/subscription-plan", Description: "Change one downstream CPA key subscription plan."},
+			{Method: http.MethodGet, Path: base + "/subscription-plans", Description: "List reusable downstream key subscription plans."},
+			{Method: http.MethodPost, Path: base + "/subscription-plans", Description: "Create a subscription plan and bind selected keys."},
+			{Method: http.MethodPatch, Path: base + "/subscription-plans", Description: "Update a subscription plan and its key bindings."},
+			{Method: http.MethodDelete, Path: base + "/subscription-plans", Description: "Delete a subscription plan and unbind its keys."},
 			{Method: http.MethodGet, Path: base + "/usage/overview", Description: "Keyer request totals and time-series overview."},
 			{Method: http.MethodGet, Path: base + "/usage/analysis", Description: "Keyer usage breakdown by model, key and provider."},
 			{Method: http.MethodGet, Path: base + "/usage/events", Description: "Paginated Keyer request events identified by key id."},
@@ -334,6 +348,16 @@ func (a *App) handleManagement(raw []byte) ([]byte, error) {
 		return OKEnvelope(a.resetUsage())
 	case req.Method == http.MethodGet && path == base+"/keys/usage":
 		return OKEnvelope(a.keyUsage(idFromRequest(req.Query, req.Body)))
+	case req.Method == http.MethodPatch && path == base+"/keys/subscription-plan":
+		return OKEnvelope(a.setKeySubscriptionPlan(req.Body))
+	case req.Method == http.MethodGet && path == base+"/subscription-plans":
+		return OKEnvelope(a.listSubscriptionPlans())
+	case req.Method == http.MethodPost && path == base+"/subscription-plans":
+		return OKEnvelope(a.createSubscriptionPlan(req.Body))
+	case req.Method == http.MethodPatch && path == base+"/subscription-plans":
+		return OKEnvelope(a.patchSubscriptionPlan(req.Body))
+	case req.Method == http.MethodDelete && path == base+"/subscription-plans":
+		return OKEnvelope(a.deleteSubscriptionPlan(idFromRequest(req.Query, req.Body)))
 	case req.Method == http.MethodGet && path == base+"/usage/overview":
 		overview, err := a.store.UsageOverview(usageFilterFromQuery(req.Query))
 		if err != nil {
@@ -470,18 +494,30 @@ type keyWriteRequest struct {
 }
 
 type publicKey struct {
-	ID                  string              `json:"id"`
-	Name                string              `json:"name"`
-	Enabled             bool                `json:"enabled"`
-	KeyPreview          string              `json:"key_preview"`
-	RPM                 int                 `json:"rpm"`
-	Models              []policy.ModelRule  `json:"models"`
-	DailyLimitUSD       float64             `json:"daily_limit_usd"`
-	WeeklyLimitUSD      float64             `json:"weekly_limit_usd"`
-	AllowModelsEndpoint bool                `json:"allow_models_endpoint,omitempty"`
-	Usage               policy.UsageSummary `json:"usage"`
-	CreatedAt           string              `json:"created_at,omitempty"`
-	UpdatedAt           string              `json:"updated_at,omitempty"`
+	ID                    string              `json:"id"`
+	Name                  string              `json:"name"`
+	Enabled               bool                `json:"enabled"`
+	KeyPreview            string              `json:"key_preview"`
+	RPM                   int                 `json:"rpm"`
+	Models                []policy.ModelRule  `json:"models"`
+	DailyLimitUSD         float64             `json:"daily_limit_usd"`
+	WeeklyLimitUSD        float64             `json:"weekly_limit_usd"`
+	AllowModelsEndpoint   bool                `json:"allow_models_endpoint,omitempty"`
+	SubscriptionPlanID    string              `json:"subscription_plan_id,omitempty"`
+	SubscriptionPlanName  string              `json:"subscription_plan_name,omitempty"`
+	SubscriptionExpiresAt string              `json:"subscription_expires_at,omitempty"`
+	BasePolicy            publicKeyPolicy     `json:"base_policy"`
+	Usage                 policy.UsageSummary `json:"usage"`
+	CreatedAt             string              `json:"created_at,omitempty"`
+	UpdatedAt             string              `json:"updated_at,omitempty"`
+}
+
+type publicKeyPolicy struct {
+	RPM                 int                `json:"rpm"`
+	Models              []policy.ModelRule `json:"models"`
+	DailyLimitUSD       float64            `json:"daily_limit_usd"`
+	WeeklyLimitUSD      float64            `json:"weekly_limit_usd"`
+	AllowModelsEndpoint bool               `json:"allow_models_endpoint,omitempty"`
 }
 
 func (a *App) createKey(body []byte) ManagementResponse {
@@ -588,6 +624,133 @@ func (a *App) keyByID(id string) (policy.KeyConfig, bool) {
 	return policy.KeyConfig{}, false
 }
 
+func (a *App) listSubscriptionPlans() ManagementResponse {
+	return jsonResponse(http.StatusOK, map[string]any{
+		"subscription_plans": a.publicSubscriptionPlans(),
+	})
+}
+
+func (a *App) createSubscriptionPlan(body []byte) ManagementResponse {
+	var req subscriptionPlanWriteRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return jsonError(http.StatusBadRequest, "invalid_json", err.Error())
+	}
+	plan, err := subscriptionPlanFromRequest(req, policy.SubscriptionPlan{})
+	if err != nil {
+		return jsonError(http.StatusBadRequest, "invalid_subscription_plan", err.Error())
+	}
+	keyIDs := req.KeyIDs
+	if keyIDs == nil {
+		empty := []string{}
+		keyIDs = &empty
+	}
+	stored, err := a.store.UpsertSubscriptionPlan(plan, keyIDs, true)
+	if err != nil {
+		return jsonError(http.StatusBadRequest, "invalid_subscription_plan", err.Error())
+	}
+	return jsonResponse(http.StatusCreated, map[string]any{
+		"subscription_plan": a.publicSubscriptionPlan(stored),
+	})
+}
+
+func (a *App) patchSubscriptionPlan(body []byte) ManagementResponse {
+	var req subscriptionPlanWriteRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return jsonError(http.StatusBadRequest, "invalid_json", err.Error())
+	}
+	current, ok := a.subscriptionPlanByID(req.ID)
+	if !ok {
+		return jsonError(http.StatusNotFound, "not_found", "subscription plan not found")
+	}
+	plan, err := subscriptionPlanFromRequest(req, current)
+	if err != nil {
+		return jsonError(http.StatusBadRequest, "invalid_subscription_plan", err.Error())
+	}
+	stored, err := a.store.UpsertSubscriptionPlan(plan, req.KeyIDs, false)
+	if err != nil {
+		return jsonError(http.StatusBadRequest, "invalid_subscription_plan", err.Error())
+	}
+	return jsonResponse(http.StatusOK, map[string]any{
+		"subscription_plan": a.publicSubscriptionPlan(stored),
+	})
+}
+
+func (a *App) deleteSubscriptionPlan(id string) ManagementResponse {
+	unbound, err := a.store.DeleteSubscriptionPlan(id)
+	if err != nil {
+		return jsonError(http.StatusBadRequest, "invalid_subscription_plan", err.Error())
+	}
+	return jsonResponse(http.StatusOK, map[string]any{
+		"deleted":      strings.TrimSpace(id),
+		"unbound_keys": unbound,
+	})
+}
+
+func (a *App) setKeySubscriptionPlan(body []byte) ManagementResponse {
+	var req struct {
+		KeyID              string `json:"key_id"`
+		SubscriptionPlanID string `json:"subscription_plan_id"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return jsonError(http.StatusBadRequest, "invalid_json", err.Error())
+	}
+	if _, err := a.store.SetKeySubscriptionPlan(req.KeyID, req.SubscriptionPlanID); err != nil {
+		return storeError(err)
+	}
+	raw, ok := a.keyByID(req.KeyID)
+	if !ok {
+		return jsonError(http.StatusNotFound, "not_found", "key not found")
+	}
+	return jsonResponse(http.StatusOK, map[string]any{"key": a.publicKeyFromConfig(raw)})
+}
+
+func subscriptionPlanFromRequest(req subscriptionPlanWriteRequest, plan policy.SubscriptionPlan) (policy.SubscriptionPlan, error) {
+	if strings.TrimSpace(req.ID) != "" {
+		plan.ID = strings.TrimSpace(req.ID)
+	}
+	if req.Name != nil {
+		plan.Name = strings.TrimSpace(*req.Name)
+	}
+	if req.RPM != nil {
+		plan.RPM = *req.RPM
+	}
+	if req.Models != nil {
+		plan.Models = append([]policy.ModelRule(nil), (*req.Models)...)
+	}
+	if req.DailyLimitUSD != nil {
+		plan.DailyLimitUSD = *req.DailyLimitUSD
+	}
+	if req.WeeklyLimitUSD != nil {
+		plan.WeeklyLimitUSD = *req.WeeklyLimitUSD
+	}
+	if req.AllowModelsEndpoint != nil {
+		plan.AllowModelsEndpoint = *req.AllowModelsEndpoint
+	}
+	if req.ExpiresAt != nil {
+		raw := strings.TrimSpace(*req.ExpiresAt)
+		if raw == "" {
+			plan.ExpiresAt = time.Time{}
+		} else {
+			value, err := time.Parse(time.RFC3339, raw)
+			if err != nil {
+				return policy.SubscriptionPlan{}, errors.New("expires_at must be an RFC3339 timestamp or empty")
+			}
+			plan.ExpiresAt = value.UTC()
+		}
+	}
+	return plan, nil
+}
+
+func (a *App) subscriptionPlanByID(id string) (policy.SubscriptionPlan, bool) {
+	id = strings.TrimSpace(id)
+	for _, plan := range a.store.SubscriptionPlans() {
+		if plan.ID == id {
+			return plan, true
+		}
+	}
+	return policy.SubscriptionPlan{}, false
+}
+
 func (a *App) deleteKey(id string) ManagementResponse {
 	if err := a.store.DeleteKey(id); err != nil {
 		return storeError(err)
@@ -676,23 +839,79 @@ func (a *App) publicKeys(keys []policy.KeyConfig) []publicKey {
 }
 
 func (a *App) publicKeyFromConfig(key policy.KeyConfig) publicKey {
+	effective, ok := a.store.EffectiveKey(key.ID)
+	if !ok {
+		effective = key
+	}
 	out := publicKey{
 		ID:                  key.ID,
 		Name:                key.Name,
 		Enabled:             key.Enabled,
 		KeyPreview:          key.KeyPreview,
-		RPM:                 key.RPM,
-		Models:              append([]policy.ModelRule{}, key.Models...),
-		DailyLimitUSD:       key.DailyLimitUSD,
-		WeeklyLimitUSD:      key.WeeklyLimitUSD,
-		AllowModelsEndpoint: key.AllowModelsEndpoint,
-		Usage:               a.store.UsageSummaryFor(key),
+		RPM:                 effective.RPM,
+		Models:              append([]policy.ModelRule{}, effective.Models...),
+		DailyLimitUSD:       effective.DailyLimitUSD,
+		WeeklyLimitUSD:      effective.WeeklyLimitUSD,
+		AllowModelsEndpoint: effective.AllowModelsEndpoint,
+		SubscriptionPlanID:  key.SubscriptionPlanID,
+		BasePolicy: publicKeyPolicy{
+			RPM:                 key.RPM,
+			Models:              append([]policy.ModelRule{}, key.Models...),
+			DailyLimitUSD:       key.DailyLimitUSD,
+			WeeklyLimitUSD:      key.WeeklyLimitUSD,
+			AllowModelsEndpoint: key.AllowModelsEndpoint,
+		},
+		Usage: a.store.UsageSummaryFor(effective),
+	}
+	if plan, exists := a.subscriptionPlanByID(key.SubscriptionPlanID); exists {
+		out.SubscriptionPlanName = plan.Name
+		if !plan.ExpiresAt.IsZero() {
+			out.SubscriptionExpiresAt = plan.ExpiresAt.UTC().Format(time.RFC3339)
+		}
 	}
 	if !key.CreatedAt.IsZero() {
 		out.CreatedAt = key.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
 	}
 	if !key.UpdatedAt.IsZero() {
 		out.UpdatedAt = key.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
+	}
+	return out
+}
+
+func (a *App) publicSubscriptionPlans() []publicSubscriptionPlan {
+	plans := a.store.SubscriptionPlans()
+	out := make([]publicSubscriptionPlan, 0, len(plans))
+	for _, plan := range plans {
+		out = append(out, a.publicSubscriptionPlan(plan))
+	}
+	return out
+}
+
+func (a *App) publicSubscriptionPlan(plan policy.SubscriptionPlan) publicSubscriptionPlan {
+	keyIDs := make([]string, 0)
+	for _, key := range a.store.Keys() {
+		if key.SubscriptionPlanID == plan.ID {
+			keyIDs = append(keyIDs, key.ID)
+		}
+	}
+	out := publicSubscriptionPlan{
+		ID:                  plan.ID,
+		Name:                plan.Name,
+		RPM:                 plan.RPM,
+		Models:              append([]policy.ModelRule{}, plan.Models...),
+		DailyLimitUSD:       plan.DailyLimitUSD,
+		WeeklyLimitUSD:      plan.WeeklyLimitUSD,
+		AllowModelsEndpoint: plan.AllowModelsEndpoint,
+		KeyIDs:              keyIDs,
+	}
+	if !plan.ExpiresAt.IsZero() {
+		out.ExpiresAt = plan.ExpiresAt.UTC().Format(time.RFC3339)
+	}
+	if !plan.CreatedAt.IsZero() {
+		out.CreatedAt = plan.CreatedAt.UTC().Format(time.RFC3339)
+	}
+	if !plan.UpdatedAt.IsZero() {
+		out.UpdatedAt = plan.UpdatedAt.UTC().Format(time.RFC3339)
 	}
 	return out
 }

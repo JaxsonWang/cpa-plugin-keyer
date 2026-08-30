@@ -15,9 +15,10 @@ import (
 )
 
 type Config struct {
-	Enabled   bool        `yaml:"enabled" json:"enabled"`
-	StateFile string      `yaml:"state_file" json:"state_file"`
-	Keys      []KeyConfig `yaml:"keys" json:"keys"`
+	Enabled           bool               `yaml:"enabled" json:"enabled"`
+	StateFile         string             `yaml:"state_file" json:"state_file"`
+	Keys              []KeyConfig        `yaml:"keys" json:"keys"`
+	SubscriptionPlans []SubscriptionPlan `yaml:"subscription_plans,omitempty" json:"subscription_plans,omitempty"`
 
 	// Aliases is read only to migrate state/config written by v0.4.x. Direct
 	// model policies are canonical from v0.5.0 onward, so normalization clears
@@ -45,11 +46,34 @@ type KeyConfig struct {
 	AllowModelsEndpoint bool        `yaml:"allow_models_endpoint,omitempty" json:"allow_models_endpoint,omitempty"`
 	DailyLimitUSD       float64     `yaml:"daily_limit_usd,omitempty" json:"daily_limit_usd,omitempty"`
 	WeeklyLimitUSD      float64     `yaml:"weekly_limit_usd,omitempty" json:"weekly_limit_usd,omitempty"`
+	SubscriptionPlanID  string      `yaml:"subscription_plan_id,omitempty" json:"subscription_plan_id,omitempty"`
 	CreatedAt           time.Time   `yaml:"created_at,omitempty" json:"created_at,omitempty"`
 	UpdatedAt           time.Time   `yaml:"updated_at,omitempty" json:"updated_at,omitempty"`
 
+	// SubscriptionExpiresAt is populated only on an effective runtime copy. The
+	// binding itself is persisted through SubscriptionPlanID; duplicating the
+	// plan expiry into every key would create a second source of truth.
+	SubscriptionExpiresAt time.Time `yaml:"-" json:"-"`
+
 	// Aliases is a v0.4.x migration input. It is never persisted by v0.5.0.
 	Aliases []KeyAliasRef `yaml:"aliases,omitempty" json:"aliases,omitempty"`
+}
+
+// SubscriptionPlan owns the policy fields shared by every bound Key. Key
+// identity, secret material and enabled state deliberately remain on KeyConfig.
+// Updating one plan therefore changes the effective request policy of all its
+// bindings without rewriting each key record.
+type SubscriptionPlan struct {
+	ID                  string      `yaml:"id" json:"id"`
+	Name                string      `yaml:"name" json:"name"`
+	RPM                 int         `yaml:"rpm" json:"rpm"`
+	Models              []ModelRule `yaml:"models" json:"models"`
+	AllowModelsEndpoint bool        `yaml:"allow_models_endpoint,omitempty" json:"allow_models_endpoint,omitempty"`
+	DailyLimitUSD       float64     `yaml:"daily_limit_usd,omitempty" json:"daily_limit_usd,omitempty"`
+	WeeklyLimitUSD      float64     `yaml:"weekly_limit_usd,omitempty" json:"weekly_limit_usd,omitempty"`
+	ExpiresAt           time.Time   `yaml:"expires_at,omitempty" json:"expires_at,omitempty"`
+	CreatedAt           time.Time   `yaml:"created_at,omitempty" json:"created_at,omitempty"`
+	UpdatedAt           time.Time   `yaml:"updated_at,omitempty" json:"updated_at,omitempty"`
 }
 
 // ModelRule is a direct allow-list entry. Model is the exact model name the
@@ -163,11 +187,12 @@ type UsageWindow struct {
 }
 
 type State struct {
-	Version   int                    `json:"version"`
-	Keys      []KeyConfig            `json:"keys"`
-	Usage     map[string]*UsageState `json:"usage,omitempty"`
-	History   UsageHistoryState      `json:"history,omitempty"`
-	UpdatedAt time.Time              `json:"updated_at"`
+	Version           int                    `json:"version"`
+	Keys              []KeyConfig            `json:"keys"`
+	SubscriptionPlans []SubscriptionPlan     `json:"subscription_plans,omitempty"`
+	Usage             map[string]*UsageState `json:"usage,omitempty"`
+	History           UsageHistoryState      `json:"history,omitempty"`
+	UpdatedAt         time.Time              `json:"updated_at"`
 
 	// Aliases is decoded only when upgrading a v0.4.x state file.
 	Aliases []AliasMapping `json:"aliases,omitempty"`
@@ -195,6 +220,18 @@ func DecodeConfig(raw []byte) (Config, error) {
 }
 
 func normalizeConfig(cfg *Config) error {
+	seenPlanIDs := make(map[string]struct{}, len(cfg.SubscriptionPlans))
+	for i := range cfg.SubscriptionPlans {
+		plan := &cfg.SubscriptionPlans[i]
+		if err := normalizeSubscriptionPlan(plan); err != nil {
+			return err
+		}
+		if _, exists := seenPlanIDs[plan.ID]; exists {
+			return fmt.Errorf("duplicate subscription plan id %q", plan.ID)
+		}
+		seenPlanIDs[plan.ID] = struct{}{}
+	}
+
 	legacyAliases := make(map[string]AliasMapping, len(cfg.Aliases))
 	for _, alias := range cfg.Aliases {
 		name := strings.ToLower(strings.TrimSpace(alias.Alias))
@@ -211,6 +248,8 @@ func normalizeConfig(cfg *Config) error {
 		key.Name = strings.TrimSpace(key.Name)
 		key.KeyHash = strings.TrimSpace(key.KeyHash)
 		key.KeyPreview = strings.TrimSpace(key.KeyPreview)
+		key.SubscriptionPlanID = strings.TrimSpace(key.SubscriptionPlanID)
+		key.SubscriptionExpiresAt = time.Time{}
 		if key.ID == "" {
 			return errors.New("key id is required")
 		}
@@ -312,6 +351,43 @@ func normalizeConfig(cfg *Config) error {
 		key.Aliases = nil
 	}
 	cfg.Aliases = nil
+	return nil
+}
+
+func normalizeSubscriptionPlan(plan *SubscriptionPlan) error {
+	plan.ID = strings.TrimSpace(plan.ID)
+	plan.Name = strings.TrimSpace(plan.Name)
+	if plan.ID == "" {
+		return errors.New("subscription plan id is required")
+	}
+	if plan.Name == "" {
+		plan.Name = plan.ID
+	}
+	if !plan.ExpiresAt.IsZero() {
+		plan.ExpiresAt = plan.ExpiresAt.UTC()
+	}
+
+	// Reuse the exact Key policy normalization contract so plan-bound and
+	// standalone keys cannot diverge on model names, prices or limit validation.
+	policyConfig := Config{Keys: []KeyConfig{{
+		ID:                  plan.ID,
+		Name:                plan.Name,
+		Enabled:             true,
+		RPM:                 plan.RPM,
+		Models:              append([]ModelRule(nil), plan.Models...),
+		AllowModelsEndpoint: plan.AllowModelsEndpoint,
+		DailyLimitUSD:       plan.DailyLimitUSD,
+		WeeklyLimitUSD:      plan.WeeklyLimitUSD,
+	}}}
+	if err := normalizeConfig(&policyConfig); err != nil {
+		return fmt.Errorf("subscription plan %q: %w", plan.ID, err)
+	}
+	normalized := policyConfig.Keys[0]
+	plan.RPM = normalized.RPM
+	plan.Models = normalized.Models
+	plan.AllowModelsEndpoint = normalized.AllowModelsEndpoint
+	plan.DailyLimitUSD = normalized.DailyLimitUSD
+	plan.WeeklyLimitUSD = normalized.WeeklyLimitUSD
 	return nil
 }
 

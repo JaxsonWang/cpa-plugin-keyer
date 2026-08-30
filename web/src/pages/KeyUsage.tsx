@@ -4,11 +4,24 @@ import { fetchKeyUsage } from "../api/keys";
 import type { KeyUsageResponse, ModelUsageEntry, UsageWindow } from "../types";
 import { useT } from "../i18n";
 import { isViewerSession, getSession } from "../store/session";
+import { useRememberedUsageFilters } from "../store/usageFilterMemory";
 
 // Window switch for the per-model breakdown table: each model row has its own
 // daily and rolling-weekly window, and the user toggles which one all rows
 // show at once. Mirrors the KeyList usage column's today/this-week framing.
 type Window = "daily" | "weekly";
+
+// KEY_USAGE_FILTER_NAMES 是 Key 详情页需要跨刷新记忆的筛选字段。
+const KEY_USAGE_FILTER_NAMES = ["window"] as const;
+
+/**
+ * 从查询参数读取 Key 用量窗口。
+ * @param params 表示恢复记忆后的路由查询参数。
+ * @returns 返回每日或每周窗口，未指定时使用每日。
+ */
+function readUsageWindow(params: URLSearchParams): Window {
+  return params.get("window") === "weekly" ? "weekly" : "daily";
+}
 
 function fmtUsd(n: number): string {
   return "$" + (Number.isFinite(n) ? n.toFixed(1) : "0.0");
@@ -50,10 +63,15 @@ export default function KeyUsage({ viewerKeyID = "" }: KeyUsageProps) {
   const { id } = useParams<{ id: string }>();
   const t = useT();
   const viewer = isViewerSession(getSession());
+  // filterScope 区分管理模式和 Viewer 模式的 Key 用量筛选记忆。
+  const filterScope = viewer ? "key-usage-viewer" : "key-usage-management";
+  // searchParams 是恢复记忆后的筛选参数；updateQuery 同步路由和本地记忆。
+  const [searchParams, updateQuery] = useRememberedUsageFilters(filterScope, KEY_USAGE_FILTER_NAMES);
+  // win 是当前生效的每日或每周用量窗口。
+  const win = readUsageWindow(searchParams);
   const [data, setData] = useState<KeyUsageResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [win, setWin] = useState<Window>("daily");
 
   useEffect(() => {
     let alive = true;
@@ -119,7 +137,7 @@ export default function KeyUsage({ viewerKeyID = "" }: KeyUsageProps) {
             role="tab"
             aria-selected={win === "daily"}
             className={"seg-btn " + (win === "daily" ? "active" : "")}
-            onClick={() => setWin("daily")}
+            onClick={() => updateQuery({ window: undefined })}
           >
             {t("keyUsage.tabDaily")}
           </button>
@@ -127,7 +145,7 @@ export default function KeyUsage({ viewerKeyID = "" }: KeyUsageProps) {
             role="tab"
             aria-selected={win === "weekly"}
             className={"seg-btn " + (win === "weekly" ? "active" : "")}
-            onClick={() => setWin("weekly")}
+            onClick={() => updateQuery({ window: "weekly" })}
           >
             {t("keyUsage.tabWeekly")}
           </button>

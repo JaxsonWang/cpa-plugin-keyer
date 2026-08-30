@@ -34,9 +34,59 @@ export interface KeyPublic {
   daily_limit_usd: number;
   weekly_limit_usd: number;
   allow_models_endpoint?: boolean;
+  /** subscription_plan_id 是当前 Key 绑定的订阅计划 ID。 */
+  subscription_plan_id?: string;
+  /** subscription_plan_name 是当前 Key 绑定的订阅计划名称。 */
+  subscription_plan_name?: string;
+  /** subscription_expires_at 是当前绑定计划的到期时间。 */
+  subscription_expires_at?: string;
+  /** base_policy 是未应用订阅计划前的 Key 自有策略。 */
+  base_policy?: KeyPolicy;
   usage: UsageSummary;
   created_at?: string;
   updated_at?: string;
+}
+
+/** KeyPolicy 表示 Key 与订阅计划共用的访问策略字段。 */
+export interface KeyPolicy {
+  /** rpm 是每分钟允许的请求数量，零表示不限。 */
+  rpm: number;
+  /** models 是当前策略允许访问的模型规则。 */
+  models: ModelRule[];
+  /** daily_limit_usd 是每日美元用量上限，零表示不限。 */
+  daily_limit_usd: number;
+  /** weekly_limit_usd 是每周美元用量上限，零表示不限。 */
+  weekly_limit_usd: number;
+  /** allow_models_endpoint 表示是否允许访问 `/v1/models`。 */
+  allow_models_endpoint?: boolean;
+}
+
+/** SubscriptionPlan 表示可被多个 Key 复用的订阅计划。 */
+export interface SubscriptionPlan extends KeyPolicy {
+  /** id 是订阅计划的稳定标识。 */
+  id: string;
+  /** name 是订阅计划的展示名称。 */
+  name: string;
+  /** expires_at 是订阅计划的 RFC3339 到期时间。 */
+  expires_at?: string;
+  /** key_ids 是当前绑定该计划的完整 Key ID 集合。 */
+  key_ids: string[];
+  /** created_at 是计划创建时间。 */
+  created_at?: string;
+  /** updated_at 是计划最后更新时间。 */
+  updated_at?: string;
+}
+
+/** SubscriptionPlanWriteRequest 表示订阅计划写接口需要的完整数据。 */
+export interface SubscriptionPlanWriteRequest extends KeyPolicy {
+  /** id 是待创建或更新的订阅计划 ID。 */
+  id: string;
+  /** name 是订阅计划展示名称。 */
+  name: string;
+  /** expires_at 是 RFC3339 到期时间，空字符串表示永久有效。 */
+  expires_at: string;
+  /** key_ids 是写入后应绑定该计划的完整 Key ID 集合。 */
+  key_ids: string[];
 }
 
 export interface KeyFormValues {

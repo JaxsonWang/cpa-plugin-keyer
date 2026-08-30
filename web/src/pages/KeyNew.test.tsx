@@ -64,7 +64,7 @@ describe("KeyNew model-picker draft", () => {
       await tick();
     });
 
-    expect(container.querySelector(".page-heading > span")?.textContent).toBe("KEYER USAGE · v0.7.9");
+    expect(container.querySelector(".page-heading > span")?.textContent).toBe("KEYER USAGE · v0.7.10");
 
     const idInput = container.querySelectorAll<HTMLInputElement>('input[placeholder="例如 team-a"]')[0];
     const nameInput = container.querySelectorAll<HTMLInputElement>('input[placeholder="留空则用 ID"]')[0];

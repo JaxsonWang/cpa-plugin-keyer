@@ -1,0 +1,245 @@
+/* CPA-integrated management surface ----------------------------------------
+ * The host panel already owns navigation, page chrome, language and theme.
+ * Embedded mode therefore renders only the resource content, while standalone
+ * mode keeps a compact neutral shell using the same CPA surface tokens. */
+:root {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+body {
+  min-height: 100dvh;
+  background: var(--bg);
+  letter-spacing: 0;
+}
+
+button,
+input,
+select {
+  letter-spacing: inherit;
+}
+
+.brand-mark {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  color: var(--accent-2);
+}
+
+@media (min-width: 641px) {
+  .app {
+    display: block;
+    max-width: none;
+    min-height: 100dvh;
+    margin: 0;
+    padding: 0;
+  }
+
+  .topnav {
+    display: block;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    height: auto;
+    margin: 0;
+    padding: 0;
+    color: var(--text);
+    background: var(--panel);
+    border: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .topnav-inner {
+    width: auto;
+    max-width: 1480px;
+    height: 64px;
+    margin: 0 auto;
+    padding: 0 30px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0;
+  }
+
+  .topnav-brand {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 11px;
+    min-width: 170px;
+    padding: 0;
+    border: 0;
+  }
+
+  .topnav-brand .brand-mark {
+    width: 30px;
+    height: 30px;
+  }
+
+  .tn-brand-copy {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .topnav-brand .tn-title {
+    color: var(--text);
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  .topnav-brand .tn-kicker {
+    color: var(--muted);
+    font-size: 8px;
+    font-weight: 650;
+    letter-spacing: 0.12em;
+  }
+
+  .tn-connection {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    max-width: 250px;
+    margin: 0 0 0 18px;
+    padding: 0 0 0 18px;
+    border: 0;
+    border-left: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .tn-connection .connection-dot {
+    width: 7px;
+    height: 7px;
+    margin-top: 0;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: var(--ok);
+    box-shadow: 0 0 0 3px var(--ok-soft);
+  }
+
+  .tn-connection > span:last-child {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .tn-connection strong {
+    color: var(--text);
+    font-size: 11px;
+    font-weight: 650;
+  }
+
+  .tn-connection small {
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .topnav-actions {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: row;
+    margin: 0 0 0 auto;
+  }
+
+  .tn-version {
+    margin: 0 0 0 12px;
+    padding: 0;
+    color: var(--muted);
+    font-size: 8px;
+    font-weight: 650;
+    letter-spacing: 0.1em;
+  }
+
+  .workspace {
+    min-width: 0;
+  }
+
+  .workspace-content {
+    max-width: 1480px;
+    margin: 0 auto;
+    padding: 28px 30px 64px;
+  }
+
+  .app.is-embedded {
+    display: block;
+    max-width: none;
+    min-height: 100dvh;
+    background: var(--bg);
+  }
+
+  .app.is-embedded .workspace {
+    min-height: 100dvh;
+  }
+
+  .app.is-embedded .workspace-content {
+    max-width: none;
+    margin: 0;
+    padding: 28px 30px 64px;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 1040px) {
+  .topnav-inner { padding-inline: 18px; }
+  .tn-connection,
+  .tn-version { display: none; }
+}
+
+/* Standalone theme selection ------------------------------------------------ */
+.theme-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--panel-2);
+}
+
+.theme-control button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: calc(var(--r-md) - 2px);
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.theme-control button:hover { color: var(--text); }
+.theme-control button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-ring); }
+.theme-control button.active {
+  color: var(--text);
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+}
+
+.theme-control.floating {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 120;
+  background: var(--panel);
+  box-shadow: var(--shadow-lg);
+}
+
+.topnav-inner > .theme-control { margin-left: 12px; }
+
+@media (max-width: 1180px) {
+  .theme-control button span { display: none; }
+}
+
+@media (max-width: 640px) {
+  .theme-mobile-slot { display: flex !important; justify-content: flex-end; margin: 0 0 14px; }
+  .theme-mobile-slot .theme-control button span { display: inline; }
+}

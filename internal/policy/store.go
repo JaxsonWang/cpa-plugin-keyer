@@ -18,6 +18,7 @@ type Store struct {
 	statePath  string
 	keys       map[string]*KeyConfig
 	keysByHash map[string]*KeyConfig
+	plans      map[string]*SubscriptionPlan
 	limiter    *RateLimiter
 	usage      *usageLedger
 	database   *stateDatabase
@@ -45,6 +46,7 @@ func NewStore() *Store {
 		enabled:    DefaultConfig().Enabled,
 		keys:       make(map[string]*KeyConfig),
 		keysByHash: make(map[string]*KeyConfig),
+		plans:      make(map[string]*SubscriptionPlan),
 		limiter:    NewRateLimiter(),
 		usage:      newUsageLedger(time.Now),
 		now:        time.Now,
@@ -65,6 +67,8 @@ func (s *Store) SetClock(now func() time.Time) {
 	s.mu.Unlock()
 }
 
+// Configure 从 cfg 初始化或重新加载 SQLite 状态，并阻止计价事务跨越数据库切换边界。
+// cfg 是插件配置，返回值表示配置校验、状态加载或持久化是否成功。
 func (s *Store) Configure(cfg Config) error {
 	s.updateMu.Lock()
 	defer s.updateMu.Unlock()
@@ -81,6 +85,8 @@ func (s *Store) Configure(cfg Config) error {
 	if err := s.StopUsageFlusher(); err != nil {
 		return fmt.Errorf("flush previous state database: %w", err)
 	}
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
 
 	s.mu.RLock()
 	clockNow := s.now
@@ -92,24 +98,33 @@ func (s *Store) Configure(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	keys, loadedUsage, initialized, err := database.loadState()
+	keys, plans, loadedUsage, initialized, err := database.loadStateWithPlans()
 	if err != nil {
 		_ = database.close()
 		return err
 	}
 	if !initialized {
 		keys = cfg.Keys
+		plans = cfg.SubscriptionPlans
 		loadedUsage = make(map[string]*UsageState)
 	}
-	loadedConfig := Config{Enabled: cfg.Enabled, StateFile: cfg.StateFile, Keys: keys}
+	loadedConfig := Config{
+		Enabled:           cfg.Enabled,
+		StateFile:         cfg.StateFile,
+		Keys:              keys,
+		SubscriptionPlans: plans,
+	}
 	if err := normalizeConfig(&loadedConfig); err != nil {
 		_ = database.close()
 		return fmt.Errorf("load state database: %w", err)
 	}
 	keys = loadedConfig.Keys
+	plans = loadedConfig.SubscriptionPlans
 
 	next := make(map[string]*KeyConfig, len(keys))
 	preparedKeys := make([]KeyConfig, 0, len(keys))
+	nextPlans := make(map[string]*SubscriptionPlan, len(plans))
+	preparedPlans := make([]SubscriptionPlan, 0, len(plans))
 	maskedPreviews := make(map[string]string, len(keys))
 	now := clockNow().UTC()
 	for i := range keys {
@@ -124,10 +139,22 @@ func (s *Store) Configure(cfg Config) error {
 		preparedKeys = append(preparedKeys, item)
 		maskedPreviews[strings.ToLower(item.ID)] = MaskKeyPreview(item.KeyPreview)
 	}
+	for i := range plans {
+		item := plans[i]
+		if item.CreatedAt.IsZero() {
+			item.CreatedAt = now
+		}
+		if item.UpdatedAt.IsZero() {
+			item.UpdatedAt = item.CreatedAt
+		}
+		nextPlans[item.ID] = copySubscriptionPlan(&item)
+		preparedPlans = append(preparedPlans, item)
+	}
 	sort.Slice(preparedKeys, func(i, j int) bool { return preparedKeys[i].ID < preparedKeys[j].ID })
+	sort.Slice(preparedPlans, func(i, j int) bool { return preparedPlans[i].ID < preparedPlans[j].ID })
 	nextUsage := newUsageLedger(clockNow)
 	nextUsage.loadFromState(loadedUsage)
-	if err := database.saveState(preparedKeys, nextUsage.snapshot()); err != nil {
+	if err := database.saveStateWithPlans(preparedKeys, preparedPlans, nextUsage.snapshot()); err != nil {
 		_ = database.close()
 		if !initialized {
 			return fmt.Errorf("seed state database: %w", err)
@@ -144,6 +171,7 @@ func (s *Store) Configure(cfg Config) error {
 	s.enabled = cfg.Enabled
 	s.statePath = statePath
 	s.keys = next
+	s.plans = nextPlans
 	s.rebuildKeysByHashLocked()
 	if s.limiter == nil {
 		s.limiter = NewRateLimiter()
@@ -260,6 +288,10 @@ func (s *Store) authorize(headers http.Header, query map[string][]string, reques
 		decision.Reason = "key_disabled"
 		return decision
 	}
+	if !key.SubscriptionExpiresAt.IsZero() && !s.currentTime().Before(key.SubscriptionExpiresAt) {
+		decision.Reason = "subscription_expired"
+		return decision
+	}
 	if modelList {
 		if key.AllowModelsEndpoint {
 			decision.Allowed = true
@@ -300,8 +332,8 @@ func (s *Store) authorize(headers http.Header, query map[string][]string, reques
 	return decision
 }
 
-// RecordResponseCost is retained for non-streaming unit/integration callers.
-// Production accounting is centralized in usage.handle.
+// RecordResponseCost 为非流式集成调用解析响应 Token，并在返回前同步持久化额度状态。
+// headers、query、requested 和 body 分别表示鉴权信息、查询参数、请求模型和响应正文，返回值是本次美元成本。
 func (s *Store) RecordResponseCost(headers http.Header, query map[string][]string, requested string, body []byte) float64 {
 	if !s.Enabled() {
 		return 0
@@ -319,14 +351,25 @@ func (s *Store) RecordResponseCost(headers http.Header, query map[string][]strin
 		return 0
 	}
 	inputPrice, outputPrice, _, priced := key.PriceForModel(model)
+	// cost 是按普通输入和输出 Token 计算出的本次请求成本。
 	cost := ComputeCost(inputPrice, outputPrice, priced, usage)
+	// ledger 是当前 Key 额度的内存读取视图。
 	_, ledger := s.runtimeComponents()
 	if priced && ledger != nil {
-		ledger.RecordCost(key.ID, model, cost, 0, 0, int64(usage.PromptTokens), int64(usage.CompletionTokens), 1)
+		// breakdown 保存同步额度状态所需的计价与 Token 增量。
+		breakdown := UsageCostBreakdown{
+			TotalUSD:            cost,
+			UncachedInputUSD:    float64(usage.PromptTokens) / 1_000_000 * inputPrice,
+			OutputUSD:           float64(usage.CompletionTokens) / 1_000_000 * outputPrice,
+			NonCacheInputTokens: int64(usage.PromptTokens),
+		}
+		s.persistUsageCost(s.runtimeHistory(), ledger, nil, key.ID, model, breakdown, int64(usage.CompletionTokens), 1)
 	}
 	return cost
 }
 
+// RecordUsage 计算宿主上报请求的成本，并同步提交请求事件和当前 Key 额度状态。
+// apiKeyOrID、requestedModel、model、failed 和 detail 描述请求身份、模型、失败状态及 Token 明细，返回值是本次美元成本。
 func (s *Store) RecordUsage(apiKeyOrID, requestedModel, model string, failed bool, detail UsageDetail) float64 {
 	if !s.Enabled() {
 		return 0
@@ -387,14 +430,9 @@ func (s *Store) RecordUsage(apiKeyOrID, requestedModel, model string, failed boo
 		CacheCreationTokens: detail.CacheCreationTokens,
 		TotalTokens:         detail.TotalTokens,
 	}
+	// recordEvent 将不改变额度状态的事件立即写入 SQLite。
 	recordEvent := func() {
-		if history != nil {
-			if err := history.record(event); err != nil {
-				s.setHistoryError(err)
-			} else {
-				s.setHistoryError(nil)
-			}
-		}
+		s.persistUsageEvent(history, event)
 	}
 	rule, ok := key.ModelRuleForModel(resolved)
 	if !ok {
@@ -413,7 +451,10 @@ func (s *Store) RecordUsage(apiKeyOrID, requestedModel, model string, failed boo
 		event.CostUSD = cost
 		event.OtherCostUSD = cost
 		if ledger != nil {
-			ledger.RecordCost(key.ID, resolved, cost, 0, 0, 0, 0, 1)
+			// breakdown 保存按次计价请求的完整成本增量。
+			breakdown := UsageCostBreakdown{TotalUSD: cost}
+			s.persistUsageCost(history, ledger, &event, key.ID, resolved, breakdown, 0, 1)
+			return cost
 		}
 		recordEvent()
 		return cost
@@ -421,7 +462,9 @@ func (s *Store) RecordUsage(apiKeyOrID, requestedModel, model string, failed boo
 	usage := TokenUsage{
 		PromptTokens:     int(detail.InputTokens),
 		CompletionTokens: int(detail.OutputTokens),
-		Found:            detail.InputTokens > 0 || detail.OutputTokens > 0,
+		Found: detail.InputTokens > 0 || detail.OutputTokens > 0 ||
+			detail.CachedTokens > 0 || detail.CacheReadTokens > 0 ||
+			detail.CacheCreationTokens > 0 || detail.TotalTokens > 0,
 	}
 	if !usage.Found {
 		recordEvent()
@@ -439,8 +482,7 @@ func (s *Store) RecordUsage(apiKeyOrID, requestedModel, model string, failed boo
 		recordEvent()
 		return breakdown.TotalUSD
 	}
-	ledger.RecordCost(key.ID, resolved, breakdown.TotalUSD, breakdown.CacheReadUSD, breakdown.CacheReadTokens, breakdown.NonCacheInputTokens, detail.OutputTokens, 1)
-	recordEvent()
+	s.persistUsageCost(history, ledger, &event, key.ID, resolved, breakdown, detail.OutputTokens, 1)
 	return breakdown.TotalUSD
 }
 
@@ -525,7 +567,7 @@ func (s *Store) findBySecret(raw string) *KeyConfig {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return copyKey(s.keysByHash[strings.ToLower(strings.TrimSpace(hash))])
+	return s.effectiveKeyLocked(s.keysByHash[strings.ToLower(strings.TrimSpace(hash))])
 }
 
 func (s *Store) findBySecretWhenEnabled(raw string) (*KeyConfig, bool) {
@@ -545,7 +587,7 @@ func (s *Store) findBySecretWhenEnabled(raw string) (*KeyConfig, bool) {
 	if !s.enabled {
 		return nil, false
 	}
-	return copyKey(s.keysByHash[strings.ToLower(strings.TrimSpace(hash))]), true
+	return s.effectiveKeyLocked(s.keysByHash[strings.ToLower(strings.TrimSpace(hash))]), true
 }
 
 func (s *Store) learnKeyPreview(key *KeyConfig, rawKey string) *KeyConfig {
@@ -567,7 +609,7 @@ func (s *Store) learnKeyPreview(key *KeyConfig, rawKey string) *KeyConfig {
 		return key
 	}
 	if strings.TrimSpace(current.KeyPreview) != "" {
-		result := copyKey(current)
+		result := s.effectiveKeyLocked(current)
 		s.mu.RUnlock()
 		return result
 	}
@@ -591,7 +633,7 @@ func (s *Store) learnKeyPreview(key *KeyConfig, rawKey string) *KeyConfig {
 	if current != nil && strings.TrimSpace(current.KeyPreview) == "" && strings.EqualFold(strings.TrimSpace(current.KeyHash), strings.TrimSpace(key.KeyHash)) {
 		current.KeyPreview = preview
 		current.UpdatedAt = time.Now().UTC()
-		key = copyKey(current)
+		key = s.effectiveKeyLocked(current)
 	}
 	s.mu.Unlock()
 	return key
@@ -625,7 +667,7 @@ func (s *Store) findByID(id string) *KeyConfig {
 			}
 		}
 	}
-	return copyKey(key)
+	return s.effectiveKeyLocked(key)
 }
 
 func copyKey(key *KeyConfig) *KeyConfig {
@@ -636,48 +678,6 @@ func copyKey(key *KeyConfig) *KeyConfig {
 	copy.Models = append([]ModelRule(nil), key.Models...)
 	copy.Aliases = nil
 	return &copy
-}
-
-func (s *Store) rebuildKeysByHashLocked() {
-	ids := make([]string, 0, len(s.keys))
-	for id := range s.keys {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	byHash := make(map[string]*KeyConfig, len(ids))
-	for _, id := range ids {
-		key := s.keys[id]
-		if key == nil {
-			continue
-		}
-		hash := strings.ToLower(strings.TrimSpace(key.KeyHash))
-		if hash == "" {
-			continue
-		}
-		if _, exists := byHash[hash]; !exists {
-			byHash[hash] = key
-		}
-	}
-	s.keysByHash = byHash
-}
-
-func (k *KeyConfig) ModelRuleForModel(model string) (ModelRule, bool) {
-	model = strings.TrimSpace(model)
-	if model == "" {
-		return ModelRule{}, false
-	}
-	for _, rule := range k.Models {
-		if strings.EqualFold(strings.TrimSpace(rule.Model), model) {
-			return rule, true
-		}
-	}
-	return ModelRule{}, false
-}
-
-func (s *Store) Keys() []KeyConfig {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.keysSnapshotLocked()
 }
 
 func (s *Store) keysSnapshotLocked() []KeyConfig {
@@ -692,6 +692,7 @@ func (s *Store) keysSnapshotLocked() []KeyConfig {
 	return keys
 }
 
+// UpsertKey 新建或更新 input，并在 persist 为真时与最新额度状态一起提交到 SQLite。
 func (s *Store) UpsertKey(input KeyConfig, persist bool) error {
 	s.updateMu.Lock()
 	defer s.updateMu.Unlock()
@@ -700,7 +701,10 @@ func (s *Store) UpsertKey(input KeyConfig, persist bool) error {
 		return err
 	}
 	key := cfg.Keys[0]
+	key.SubscriptionExpiresAt = time.Time{}
 	now := time.Now().UTC()
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
 	s.mu.Lock()
 	if old := s.keys[key.ID]; old != nil && !old.CreatedAt.IsZero() {
 		key.CreatedAt = old.CreatedAt
@@ -711,15 +715,17 @@ func (s *Store) UpsertKey(input KeyConfig, persist bool) error {
 	s.keys[key.ID] = &key
 	s.rebuildKeysByHashLocked()
 	keys := s.keysSnapshotLocked()
+	plans := s.plansSnapshotLocked()
 	usage := s.usageSnapshotLocked()
 	database := s.database
 	s.mu.Unlock()
 	if persist {
-		return s.saveState(database, keys, usage)
+		return saveConfigurationState(database, keys, plans, usage)
 	}
 	return nil
 }
 
+// DeleteKey 删除 id 对应的 Key，并在同一持久化临界区保存配置和最新额度快照。
 func (s *Store) DeleteKey(id string) error {
 	s.updateMu.Lock()
 	defer s.updateMu.Unlock()
@@ -727,6 +733,8 @@ func (s *Store) DeleteKey(id string) error {
 	if id == "" {
 		return errors.New("id is required")
 	}
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
 	s.mu.Lock()
 	if _, ok := s.keys[id]; !ok {
 		s.mu.Unlock()
@@ -735,6 +743,7 @@ func (s *Store) DeleteKey(id string) error {
 	delete(s.keys, id)
 	s.rebuildKeysByHashLocked()
 	keys := s.keysSnapshotLocked()
+	plans := s.plansSnapshotLocked()
 	usage := s.usageSnapshotLocked()
 	delete(usage, id)
 	database := s.database
@@ -747,9 +756,10 @@ func (s *Store) DeleteKey(id string) error {
 	if ledger != nil {
 		ledger.resetUsage(id)
 	}
-	return s.saveState(database, keys, usage)
+	return saveConfigurationState(database, keys, plans, usage)
 }
 
+// RotateKey 为 id 生成新密钥，并在同一持久化临界区保存配置和最新额度快照。
 func (s *Store) RotateKey(id string) (string, KeyConfig, error) {
 	s.updateMu.Lock()
 	defer s.updateMu.Unlock()
@@ -757,6 +767,8 @@ func (s *Store) RotateKey(id string) (string, KeyConfig, error) {
 	if id == "" {
 		return "", KeyConfig{}, errors.New("id is required")
 	}
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
 	plain, err := GenerateKey()
 	if err != nil {
 		return "", KeyConfig{}, err
@@ -777,6 +789,7 @@ func (s *Store) RotateKey(id string) (string, KeyConfig, error) {
 	result := *copyKey(key)
 	s.rebuildKeysByHashLocked()
 	keys := s.keysSnapshotLocked()
+	plans := s.plansSnapshotLocked()
 	usage := s.usageSnapshotLocked()
 	database := s.database
 	limiter := s.limiter
@@ -784,7 +797,7 @@ func (s *Store) RotateKey(id string) (string, KeyConfig, error) {
 	if limiter != nil {
 		limiter.Reset(id)
 	}
-	if err := s.saveState(database, keys, usage); err != nil {
+	if err := saveConfigurationState(database, keys, plans, usage); err != nil {
 		return "", KeyConfig{}, err
 	}
 	return plain, result, nil
@@ -849,13 +862,12 @@ func (s *Store) ResetAllUsage() error {
 	return nil
 }
 
-func (s *Store) saveState(database *stateDatabase, keys []KeyConfig, usage map[string]*UsageState) error {
+// saveConfigurationState 将 keys、plans 和 usage 作为一份完整状态写入 database；调用方必须持有持久化锁。
+func saveConfigurationState(database *stateDatabase, keys []KeyConfig, plans []SubscriptionPlan, usage map[string]*UsageState) error {
 	if database == nil {
 		return errors.New("state database is not configured")
 	}
-	s.persistMu.Lock()
-	defer s.persistMu.Unlock()
-	return database.saveState(keys, usage)
+	return database.saveStateWithPlans(keys, plans, usage)
 }
 
 type usageFlusher struct {
@@ -891,8 +903,11 @@ func (s *Store) StopUsageFlusher() error {
 	return s.FlushUsage()
 }
 
+// Close 停止后台刷新，并在阻止新计价事务后关闭当前 SQLite 数据库。
 func (s *Store) Close() error {
 	flushErr := s.StopUsageFlusher()
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
 	s.mu.Lock()
 	database := s.database
 	s.database = nil
@@ -909,7 +924,7 @@ func (f *usageFlusher) stop() {
 
 func (f *usageFlusher) loop() {
 	defer close(f.doneCh)
-	ticker := time.NewTicker(15 * time.Second)
+	ticker := time.NewTicker(usageFlushInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -921,8 +936,9 @@ func (f *usageFlusher) loop() {
 	}
 }
 
+// Status 返回插件运行状态，并使用订阅计划生效后的 Key 策略生成额度汇总。
 func (s *Store) Status() map[string]any {
-	keys := s.Keys()
+	keys := s.EffectiveKeys()
 	limiter, usage := s.runtimeComponents()
 	status := map[string]any{
 		"enabled":    s.Enabled(),

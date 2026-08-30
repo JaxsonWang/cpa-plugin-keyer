@@ -15,9 +15,8 @@ const (
 // usageLedger tracks per-key dollar usage with a daily window (UTC midnight
 // reset) and a rolling 7-day weekly window. Usage is also broken down per exact model.
 //
-// It is the in-memory source of truth; a background flusher periodically
-// persists it to the state JSON (see Store.persistUsage). Reads for limit
-// enforcement (Authenticate) and reporting (keys list) go through here.
+// 它是鉴权和报表的内存读取视图；成功计价必须先与请求事件一起提交到 SQLite，
+// 提交成功后才发布到该视图，因此服务器重启不会依赖后台刷新周期恢复额度。
 type usageLedger struct {
 	mu  sync.Mutex
 	now func() time.Time
@@ -32,45 +31,50 @@ func newUsageLedger(now func() time.Time) *usageLedger {
 	return &usageLedger{now: now, entries: make(map[string]*UsageState)}
 }
 
-// loadFromState seeds the ledger from a loaded state file (restart recovery).
+// loadFromState 使用持久化状态初始化账本，并复制所有模型维度数据以避免共享可变映射。
 func (l *usageLedger) loadFromState(usage map[string]*UsageState) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.entries = make(map[string]*UsageState, len(usage))
+	// id 和 state 分别表示当前恢复的 Key ID 与额度状态。
 	for id, st := range usage {
 		if st == nil {
 			continue
 		}
-		cp := *st
-		l.entries[id] = &cp
+		l.entries[id] = cloneUsageState(st)
 	}
 }
 
-// snapshot returns a deep copy for persistence/reporting.
+// snapshot 返回可安全用于持久化和报表计算的完整深拷贝。
 func (l *usageLedger) snapshot() map[string]*UsageState {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	// out 保存与实时账本互不共享映射的额度快照。
 	out := make(map[string]*UsageState, len(l.entries))
+	// id 和 state 分别表示当前复制的 Key ID 与额度状态。
 	for id, st := range l.entries {
 		if st == nil {
 			continue
 		}
-		cp := *st
-		out[id] = &cp
+		out[id] = cloneUsageState(st)
 	}
 	return out
 }
 
-func (l *usageLedger) entryLocked(id string) *UsageState {
-	st := l.entries[id]
-	if st == nil {
-		st = &UsageState{ByAlias: make(map[string]AliasUsageWindows)}
-		l.entries[id] = st
+// cloneUsageState 深拷贝 state，确保 ByAlias 不与调用方共享底层映射。
+// state 是待复制的额度状态，返回值是可独立修改的副本。
+func cloneUsageState(state *UsageState) *UsageState {
+	if state == nil {
+		return &UsageState{ByAlias: make(map[string]AliasUsageWindows)}
 	}
-	if st.ByAlias == nil {
-		st.ByAlias = make(map[string]AliasUsageWindows)
+	// cloned 是额度窗口及模型统计的独立副本。
+	cloned := *state
+	cloned.ByAlias = make(map[string]AliasUsageWindows, len(state.ByAlias))
+	// model 和 windows 分别表示模型名与该模型的日、周额度窗口。
+	for model, windows := range state.ByAlias {
+		cloned.ByAlias[model] = windows
 	}
-	return st
+	return &cloned
 }
 
 // ensureDailyWindow resets the daily window if we crossed UTC midnight since it
@@ -112,33 +116,43 @@ func sameDay(a, b time.Time) bool {
 	return a.Year() == b.Year() && a.Month() == b.Month() && a.Day() == b.Day()
 }
 
-// RecordCost adds a dollar amount for a key+model to the daily, weekly, and
-// per-model buckets, advancing windows as needed. It also accumulates the
-// cache-specific counters (cache-read tokens, cache spend, non-cache input
-// tokens) used for the cache hit-rate / spend report — these do NOT feed limit
-// enforcement, only the Summary the UI reads.
-//
-// callCount is the number of successful requests to add to CallCount for this
-// record (1 for a normal request, 0 when billing a zero-cost/no-op record).
-//
-// amount is the total dollar bill for the record; cacheCost is the portion of
-// that bill attributable to cache-hit input tokens priced at the cache price
-// (0 when no cache price was configured); cacheReadTokens is the cache-hit
-// count for the record; inputTokens is the non-cache input-token count charged
-// at the regular input price (the denominator partner for hit-rate);
-// outputTokens is the completion-token count charged at the output price.
+// RecordCost 将一次请求的金额、Token 和调用次数写入内存账本。
+// id 与 model 标识 Key 和模型；amount 与 cacheCost 是总成本和缓存成本；其余参数是本次请求的统计增量。
 func (l *usageLedger) RecordCost(id, model string, amount, cacheCost float64, cacheReadTokens, inputTokens, outputTokens int64, callCount int64) {
+	_ = l.recordCost(id, model, amount, cacheCost, cacheReadTokens, inputTokens, outputTokens, callCount, nil)
+}
+
+// recordCost 先构造下一份额度状态，在 persist 成功后才替换实时账本，从而保持内存与 SQLite 一致。
+// persist 接收本次提交后的完整 Key 状态；为空时只更新内存，返回值表示持久化是否成功。
+func (l *usageLedger) recordCost(id, model string, amount, cacheCost float64, cacheReadTokens, inputTokens, outputTokens int64, callCount int64, persist func(*UsageState) error) error {
 	if id == "" {
-		return
+		return nil
 	}
+	// now 是日、周窗口推进使用的统一时间。
 	now := l.now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	st := l.entryLocked(id)
+	// state 是基于当前账本生成、尚未对实时读取生效的下一状态。
+	state := cloneUsageState(l.entries[id])
+	l.applyCostLocked(state, model, amount, cacheCost, cacheReadTokens, inputTokens, outputTokens, callCount, now)
+	if persist != nil {
+		if err := persist(state); err != nil {
+			return err
+		}
+	}
+	l.entries[id] = state
+	return nil
+}
+
+// applyCostLocked 把一次请求的统计增量应用到 state；调用方必须持有账本互斥锁。
+// state 是待更新状态，now 是窗口判断时间，其余参数描述本次请求的金额和 Token 增量。
+func (l *usageLedger) applyCostLocked(state *UsageState, model string, amount, cacheCost float64, cacheReadTokens, inputTokens, outputTokens int64, callCount int64, now time.Time) {
+	// st 是为了保持以下窗口更新表达紧凑而使用的状态别名。
+	st := state
 	l.ensureDailyWindowLocked(st, now)
 	l.ensureWeeklyWindowLocked(st, now)
-	st.Daily.TotalUSD += amount
-	st.Weekly.TotalUSD += amount
+	st.Daily.TotalUSD = normalizePrice(st.Daily.TotalUSD + amount)
+	st.Weekly.TotalUSD = normalizePrice(st.Weekly.TotalUSD + amount)
 	st.Daily.CallCount += callCount
 	st.Weekly.CallCount += callCount
 	if cacheReadTokens > 0 {
@@ -146,8 +160,8 @@ func (l *usageLedger) RecordCost(id, model string, amount, cacheCost float64, ca
 		st.Weekly.CacheReadTokens += cacheReadTokens
 	}
 	if cacheCost > 0 {
-		st.Daily.CacheCostUSD += cacheCost
-		st.Weekly.CacheCostUSD += cacheCost
+		st.Daily.CacheCostUSD = normalizePrice(st.Daily.CacheCostUSD + cacheCost)
+		st.Weekly.CacheCostUSD = normalizePrice(st.Weekly.CacheCostUSD + cacheCost)
 	}
 	if inputTokens > 0 {
 		st.Daily.InputTokens += inputTokens
@@ -158,17 +172,18 @@ func (l *usageLedger) RecordCost(id, model string, amount, cacheCost float64, ca
 		st.Weekly.OutputTokens += outputTokens
 	}
 
+	// modelEntry 是当前模型在日、周窗口内的额度和 Token 统计。
 	modelEntry := st.ByAlias[model]
 	l.ensureModelWindowLocked(&modelEntry.Daily, true, now)
 	l.ensureModelWindowLocked(&modelEntry.Weekly, false, now)
-	modelEntry.Daily.TotalUSD += amount
-	modelEntry.Weekly.TotalUSD += amount
+	modelEntry.Daily.TotalUSD = normalizePrice(modelEntry.Daily.TotalUSD + amount)
+	modelEntry.Weekly.TotalUSD = normalizePrice(modelEntry.Weekly.TotalUSD + amount)
 	modelEntry.Daily.CallCount += callCount
 	modelEntry.Weekly.CallCount += callCount
 	modelEntry.Daily.CacheReadTokens += cacheReadTokens
 	modelEntry.Weekly.CacheReadTokens += cacheReadTokens
-	modelEntry.Daily.CacheCostUSD += cacheCost
-	modelEntry.Weekly.CacheCostUSD += cacheCost
+	modelEntry.Daily.CacheCostUSD = normalizePrice(modelEntry.Daily.CacheCostUSD + cacheCost)
+	modelEntry.Weekly.CacheCostUSD = normalizePrice(modelEntry.Weekly.CacheCostUSD + cacheCost)
 	modelEntry.Daily.InputTokens += inputTokens
 	modelEntry.Weekly.InputTokens += inputTokens
 	modelEntry.Daily.OutputTokens += outputTokens
