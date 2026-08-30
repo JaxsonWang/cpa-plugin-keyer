@@ -150,7 +150,7 @@ describe("SubscriptionPlanEdit", () => {
     expect(teamA.checked).toBe(true);
     expect(teamB.disabled).toBe(true);
     expect(teamB.parentElement?.textContent).toContain("premium");
-    expect(container.querySelector(".page-heading > span")?.textContent).toBe("KEYER USAGE · v0.7.10");
+    expect(container.querySelector(".page-heading > span")?.textContent).toBe("KEYER USAGE · v0.7.11");
     expect(container.querySelector('[data-testid="plan-models"]')?.textContent).toContain(
       '"input_price_per_million":2,"output_price_per_million":12,"cache_read_price_per_million":0.2',
     );

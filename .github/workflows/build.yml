@@ -91,13 +91,33 @@ jobs:
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
 
+      - name: Setup Zig for portable Linux AMD64
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        uses: mlugg/setup-zig@v2.2.1
+        with:
+          version: '0.16.0'
+
       - name: Web build (embed UI)
         run: make web-build
 
       - name: Resolve release metadata
         run: bash scripts/release-metadata.sh ${{ matrix.goos }} ${{ matrix.goarch }} ${{ matrix.ext }}
 
+      - name: Build portable Linux AMD64 shared library
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          CC="zig cc -target x86_64-linux-gnu.2.17" \
+          CXX="zig c++ -target x86_64-linux-gnu.2.17" \
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 GOAMD64=v1 \
+            go build -trimpath -buildvcs=false -tags cshared -buildmode=c-shared \
+              -ldflags "-s -w" \
+              -o "dist/${LIB_NAME}" ./cmd/cpa-keyer
+          rm -f "dist/${PLUGIN_ID}.h"
+
       - name: Build shared library
+        if: matrix.goos != 'linux' || matrix.goarch != 'amd64'
         run: |
           set -euo pipefail
           mkdir -p dist
