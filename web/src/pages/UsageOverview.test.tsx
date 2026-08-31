@@ -159,7 +159,7 @@ describe("UsageOverview", () => {
     expect(fetchUsageAnalysis).toHaveBeenCalledWith({ range: "7d", key_id: "" });
     expect(listKeys).toHaveBeenCalledOnce();
     expect(container.querySelector("h1")?.textContent).toBe("概览");
-    expect(container.querySelector(".page-heading > span")?.textContent).toBe("KEYER USAGE · v0.7.11");
+    expect(container.querySelector(".page-heading > span")?.textContent).toBe("KEYER USAGE · v0.7.12");
     expect(container.querySelectorAll(".dashboard-kpi")).toHaveLength(8);
     expect(container.textContent).toContain("请求与 Token 趋势");
     expect(container.textContent).toContain("Token 构成趋势");

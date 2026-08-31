@@ -39,6 +39,53 @@ Use the Web UI or Management API to create keys; the plaintext key is returned
 once. Do not also add plugin-issued keys to CPA's native `api-keys`, because
 that creates a separate native authentication path.
 
+### Filtered model list
+
+Keyer exposes `/v0/resource/plugins/cpa-keyer/viewer/models`. A known and
+enabled Keyer key with `allow_models_endpoint` receives only the effective
+models assigned directly or by its subscription plan. Disabled, expired, or
+model-list-disabled Keyer keys receive `401`; a key unknown to Keyer returns
+the internal dispatch status `418` so the reverse proxy can pass CPA-native
+keys to CPA's original model list.
+
+Use exact Nginx locations so generation and streaming routes remain unchanged.
+`HOST:PORT` below must be CPA's internal listener, not the public Nginx endpoint:
+
+```nginx
+location = /v1/models {
+    proxy_intercept_errors on;
+    error_page 418 = /__native_v1_models;
+    proxy_pass http://HOST:PORT/v0/resource/plugins/cpa-keyer/viewer/models;
+    proxy_set_header Authorization $http_authorization;
+    proxy_set_header Host $host;
+}
+
+location = /__native_v1_models {
+    internal;
+    proxy_pass http://HOST:PORT/v1/models;
+    proxy_set_header Authorization $http_authorization;
+    proxy_set_header Host $host;
+}
+
+location = /openai/v1/models {
+    proxy_intercept_errors on;
+    error_page 418 = /__native_openai_models;
+    proxy_pass http://HOST:PORT/v0/resource/plugins/cpa-keyer/viewer/models;
+    proxy_set_header Authorization $http_authorization;
+    proxy_set_header Host $host;
+}
+
+location = /__native_openai_models {
+    internal;
+    proxy_pass http://HOST:PORT/openai/v1/models;
+    proxy_set_header Authorization $http_authorization;
+    proxy_set_header Host $host;
+}
+```
+
+Run `nginx -t` before reloading. Keyer keys use the filtered response; CPA
+native keys keep CPA's original global model-list behavior.
+
 ## Web Management UI
 
 After the plugin loads:

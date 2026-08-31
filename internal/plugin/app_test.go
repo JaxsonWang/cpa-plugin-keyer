@@ -524,34 +524,41 @@ func TestRegistrationUsesCpaKeyerIdentity(t *testing.T) {
 	if PluginID != "cpa-keyer" || registration.Metadata.Name != "Keyer" {
 		t.Fatalf("plugin identity = %q / %q, want cpa-keyer / Keyer", PluginID, registration.Metadata.Name)
 	}
-	if registration.Metadata.Version != "0.7.11" {
-		t.Fatalf("plugin version = %q, want 0.7.11", registration.Metadata.Version)
+	if registration.Metadata.Version != "0.7.12" {
+		t.Fatalf("plugin version = %q, want 0.7.12", registration.Metadata.Version)
 	}
 	if registration.Metadata.GitHubRepository != "https://github.com/JaxsonWang/cpa-plugin-keyer" {
 		t.Fatalf("repository = %q", registration.Metadata.GitHubRepository)
 	}
 }
 
+// TestManagementResourceUsesKeyerDisplayName 验证管理菜单名称及全部 Viewer 资源注册；t 提供测试生命周期。
 func TestManagementResourceUsesKeyerDisplayName(t *testing.T) {
+	// app 是待检查资源注册信息的插件实例。
 	app := NewApp()
 	t.Cleanup(app.Shutdown)
+	// resources 是插件声明的管理网页和只读资源集合。
 	resources := app.managementRegistration().Resources
-	if len(resources) != 6 || resources[0].Menu != "Keyer" {
+	if len(resources) != 7 || resources[0].Menu != "Keyer" {
 		t.Fatalf("management resources = %+v, want Keyer menu", resources)
 	}
+	// wanted 记录每个只读资源是否已完成注册。
 	wanted := map[string]bool{
 		viewerKeyPath: false, viewerKeyUsagePath: false,
 		viewerUsageOverviewPath: false, viewerUsageAnalysisPath: false,
-		viewerUsageEventsPath: false,
+		viewerUsageEventsPath: false, viewerModelsPath: false,
 	}
+	// resource 是当前检查的只读资源声明。
 	for _, resource := range resources[1:] {
 		if resource.Menu != "" {
 			t.Fatalf("viewer resource unexpectedly creates a menu: %+v", resource)
 		}
+		// exists 表示当前资源是否属于预期集合。
 		if _, exists := wanted[resource.Path]; exists {
 			wanted[resource.Path] = true
 		}
 	}
+	// path 和 found 分别表示预期资源路径及其注册结果。
 	for path, found := range wanted {
 		if !found {
 			t.Fatalf("viewer resource not registered: %s", path)

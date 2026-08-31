@@ -17,14 +17,6 @@ type App struct {
 	store *policy.Store
 }
 
-const (
-	viewerKeyPath           = "/viewer/key"
-	viewerKeyUsagePath      = "/viewer/key/usage"
-	viewerUsageOverviewPath = "/viewer/usage/overview"
-	viewerUsageAnalysisPath = "/viewer/usage/analysis"
-	viewerUsageEventsPath   = "/viewer/usage/events"
-)
-
 func NewApp() *App {
 	store := policy.NewStore()
 	_ = store.Configure(policy.DefaultConfig())
@@ -281,7 +273,9 @@ func (a *App) handleUsage(raw []byte) ([]byte, error) {
 	return OKEnvelope(UsageHandleResponse{})
 }
 
+// managementRegistration 通过插件实例 a 返回 Keyer 管理路由和只读资源声明。
 func (a *App) managementRegistration() ManagementRegistrationResponse {
+	// base 是 CPA 管理路由注册使用的插件相对路径。
 	base := "/plugins/" + PluginID
 	return ManagementRegistrationResponse{
 		Routes: []ManagementRoute{
@@ -310,6 +304,7 @@ func (a *App) managementRegistration() ManagementRegistrationResponse {
 			{Path: viewerUsageOverviewPath, Description: "Read usage overview for the authenticated downstream key."},
 			{Path: viewerUsageAnalysisPath, Description: "Read usage analysis for the authenticated downstream key."},
 			{Path: viewerUsageEventsPath, Description: "Read request events for the authenticated downstream key."},
+			{Path: viewerModelsPath, Description: "Return the authenticated downstream key's allowed models."},
 		},
 	}
 }
@@ -383,58 +378,6 @@ func (a *App) handleManagement(raw []byte) ([]byte, error) {
 	default:
 		return OKEnvelope(jsonError(http.StatusNotFound, "not_found", "unknown management route"))
 	}
-}
-
-func (a *App) handleViewerResource(path string, req ManagementRequest) ManagementResponse {
-	switch path {
-	case viewerKeyPath, viewerKeyUsagePath, viewerUsageOverviewPath, viewerUsageAnalysisPath, viewerUsageEventsPath:
-	default:
-		status, headers, body := web.Serve(path)
-		return ManagementResponse{StatusCode: status, Headers: headers, Body: body}
-	}
-
-	key, ok := a.viewerKey(req.Headers)
-	if !ok {
-		return jsonError(http.StatusUnauthorized, "viewer_unauthorized", "key is invalid or unavailable")
-	}
-
-	filter := usageFilterFromQuery(req.Query)
-	filter.KeyID = key.ID
-	switch path {
-	case viewerKeyPath:
-		return jsonResponse(http.StatusOK, map[string]any{"keys": a.publicKeys([]policy.KeyConfig{key})})
-	case viewerKeyUsagePath:
-		return a.keyUsage(key.ID)
-	case viewerUsageOverviewPath:
-		overview, err := a.store.UsageOverview(filter)
-		if err != nil {
-			return jsonError(http.StatusInternalServerError, "usage_store_error", err.Error())
-		}
-		return jsonResponse(http.StatusOK, overview)
-	case viewerUsageAnalysisPath:
-		analysis, err := a.store.UsageAnalysis(filter)
-		if err != nil {
-			return jsonError(http.StatusInternalServerError, "usage_store_error", err.Error())
-		}
-		return jsonResponse(http.StatusOK, analysis)
-	case viewerUsageEventsPath:
-		page := positiveQueryInt(req.Query, "page", 1)
-		pageSize := positiveQueryInt(req.Query, "page_size", 50)
-		events, err := a.store.UsageEvents(filter, page, pageSize)
-		if err != nil {
-			return jsonError(http.StatusInternalServerError, "usage_store_error", err.Error())
-		}
-		return jsonResponse(http.StatusOK, events)
-	}
-	return jsonError(http.StatusNotFound, "not_found", "unknown viewer route")
-}
-
-func (a *App) viewerKey(headers http.Header) (policy.KeyConfig, bool) {
-	decision := a.store.AuthenticateKey(headers, nil)
-	if !decision.Known || !decision.Allowed {
-		return policy.KeyConfig{}, false
-	}
-	return a.keyByID(decision.KeyID)
 }
 
 func usageFilterFromQuery(query url.Values) policy.UsageHistoryFilter {

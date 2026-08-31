@@ -123,7 +123,7 @@ describe("App shell", () => {
     expect(container.querySelector("header.topnav")).not.toBeNull();
     expect(container.querySelector(".workspace-header")).toBeNull();
     expect(container.querySelector(".tn-title")?.textContent).toBe("Keyer");
-    expect(container.querySelector(".tn-version")?.textContent).toBe("KEYER · v0.7.11");
+    expect(container.querySelector(".tn-version")?.textContent).toBe("KEYER · v0.7.12");
     expect(container.querySelector(".tn-connection")).not.toBeNull();
     expect(container.querySelector("header.topnav .theme-control")).not.toBeNull();
     expect(container.querySelector(".theme-mobile-slot .theme-control")).not.toBeNull();

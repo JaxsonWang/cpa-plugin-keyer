@@ -35,6 +35,46 @@ https://raw.githubusercontent.com/JaxsonWang/cpa-plugin-keyer/main/registry.json
 
 Key 策略、用量和请求事件统一保存在 SQLite `state_file` 中。通过管理网页或管理 API 创建 Key，明文 Key 只返回一次。不要把插件签发的 Key 同时加入 CPA 原生 `api-keys`，否则会产生一条独立的原生认证路径。
 
+### 按 Key 过滤模型列表
+
+Keyer 提供 `/v0/resource/plugins/cpa-keyer/viewer/models`。已知、启用且开启 `allow_models_endpoint` 的 Keyer Key 只会得到当前 Key 直接配置或订阅方案生效后的模型；禁用、过期或关闭模型列表权限的 Keyer Key 返回 `401`；Keyer 不认识的 Key 返回仅供反向代理分流的 `418`，由 Nginx 将 CPA 原生 Key 交回 CPA 原始模型列表。
+
+使用 Nginx 精确路径，避免影响推理和流式请求。以下 `HOST:PORT` 必须指向 CPA 内部监听地址，不能指向当前 Nginx 公共入口：
+
+```nginx
+location = /v1/models {
+    proxy_intercept_errors on;
+    error_page 418 = /__native_v1_models;
+    proxy_pass http://HOST:PORT/v0/resource/plugins/cpa-keyer/viewer/models;
+    proxy_set_header Authorization $http_authorization;
+    proxy_set_header Host $host;
+}
+
+location = /__native_v1_models {
+    internal;
+    proxy_pass http://HOST:PORT/v1/models;
+    proxy_set_header Authorization $http_authorization;
+    proxy_set_header Host $host;
+}
+
+location = /openai/v1/models {
+    proxy_intercept_errors on;
+    error_page 418 = /__native_openai_models;
+    proxy_pass http://HOST:PORT/v0/resource/plugins/cpa-keyer/viewer/models;
+    proxy_set_header Authorization $http_authorization;
+    proxy_set_header Host $host;
+}
+
+location = /__native_openai_models {
+    internal;
+    proxy_pass http://HOST:PORT/openai/v1/models;
+    proxy_set_header Authorization $http_authorization;
+    proxy_set_header Host $host;
+}
+```
+
+重载前先执行 `nginx -t`。Keyer Key 使用过滤结果，CPA 原生 Key 保持 CPA 全局模型列表行为。
+
 ## 管理网页
 
 插件加载后访问：
