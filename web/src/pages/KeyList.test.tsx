@@ -261,56 +261,12 @@ describe("KeyList", () => {
     expect(container.querySelector(".key-usage-cell")?.textContent).toContain("不限");
   });
 
-  it("resets selected keys' limits in one batch and clears successful selections", async () => {
+  it("does not offer a batch usage-limit reset action", async () => {
     await renderList([key("team-a"), key("team-b")]);
 
-    const selectAll = container.querySelector<HTMLInputElement>('input[aria-label="全选"]')!;
-    await act(async () => selectAll.click());
+    // batchReset 表示批量取消 Key 用量上限的按钮查询结果。
     const batchReset = Array.from(container.querySelectorAll("button"))
-      .find((button) => button.textContent === "批量重置")!;
-    await act(async () => batchReset.click());
-
-    const dialog = container.querySelector<HTMLElement>('[role="alertdialog"]')!;
-    expect(dialog.textContent).toContain("已选 2 个 Key");
-    const confirmButton = Array.from(dialog.querySelectorAll("button"))
-      .find((button) => button.textContent === "批量重置")!;
-    await act(async () => {
-      confirmButton.click();
-      await tick();
-    });
-
-    expect(resetKeyLimits).toHaveBeenCalledWith("team-a");
-    expect(resetKeyLimits).toHaveBeenCalledWith("team-b");
-    expect(container.querySelector<HTMLInputElement>('input[aria-label="选择 Key team-a"]')!.checked).toBe(false);
-    expect(container.querySelector<HTMLInputElement>('input[aria-label="选择 Key team-b"]')!.checked).toBe(false);
-  });
-
-  it("keeps keys whose limit reset failed selected for retry", async () => {
-    const keys = [key("team-a"), key("team-b")];
-    await renderList(keys);
-    vi.mocked(resetKeyLimits)
-      .mockResolvedValueOnce({
-        ...keys[0],
-        daily_limit_usd: 0,
-        weekly_limit_usd: 0,
-        usage: { ...keys[0].usage, daily_limit_usd: 0, weekly_limit_usd: 0 },
-      })
-      .mockRejectedValueOnce(new Error("persist failed"));
-
-    const selectAll = container.querySelector<HTMLInputElement>('input[aria-label="全选"]')!;
-    await act(async () => selectAll.click());
-    const batchReset = Array.from(container.querySelectorAll("button"))
-      .find((button) => button.textContent === "批量重置")!;
-    await act(async () => batchReset.click());
-    const confirmButton = Array.from(container.querySelectorAll<HTMLElement>('[role="alertdialog"] button'))
-      .find((button) => button.textContent === "批量重置")!;
-    await act(async () => {
-      confirmButton.click();
-      await tick();
-    });
-
-    expect(container.querySelector<HTMLInputElement>('input[aria-label="选择 Key team-a"]')!.checked).toBe(false);
-    expect(container.querySelector<HTMLInputElement>('input[aria-label="选择 Key team-b"]')!.checked).toBe(true);
-    expect(container.textContent).toContain("1 个 Key 的用量上限重置失败");
+      .find((button) => button.textContent === "批量重置");
+    expect(batchReset).toBeUndefined();
   });
 });

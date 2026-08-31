@@ -54,7 +54,7 @@ export default function KeyList() {
   const [plain, setPlain] = useState<string | null>(null);
   const [plainTitle, setPlainTitle] = useState<string>("");
   const [pendingAction, setPendingAction] = useState<
-    { type: "rotate" | "delete" | "resetUsage" | "resetLimits" | "batchResetLimits"; id?: string; ids?: string[] } | null
+    { type: "rotate" | "delete" | "resetUsage" | "resetLimits"; id?: string } | null
   >(null);
   const [confirming, setConfirming] = useState(false);
 
@@ -112,37 +112,26 @@ export default function KeyList() {
     }
   };
 
-  const onResetLimits = async (ids: string[], batch: boolean) => {
-    if (ids.length === 0) return;
-
+  /**
+   * 将单个 Key 的每日和每周用量上限清零，使该 Key 不再受预算限制。
+   * @param id 表示需要取消用量上限的 Key ID。
+   */
+  const onResetLimits = async (id: string) => {
     setError("");
-    setUpdatingIDs((current) => new Set([...current, ...ids]));
-    const results = await Promise.allSettled(ids.map((id) => resetKeyLimits(id)));
-    const updatedByID = new Map<string, KeyPublic>();
-    const failedIDs: string[] = [];
-    let firstFailure: unknown;
-
-    results.forEach((result, index) => {
-      const id = ids[index];
-      if (result.status === "fulfilled") updatedByID.set(id, result.value);
-      else {
-        failedIDs.push(id);
-        firstFailure ??= result.reason;
-      }
-    });
-
-    setKeys((current) => current.map((key) => updatedByID.get(key.id) ?? key));
-    if (batch) setSelectedIDs(new Set(failedIDs));
-    setUpdatingIDs((current) => {
-      const next = new Set(current);
-      ids.forEach((id) => next.delete(id));
-      return next;
-    });
-
-    if (failedIDs.length > 0) {
-      setError(batch
-        ? t("keys.batchResetLimitsFailed", { count: failedIDs.length })
-        : `${failedIDs[0]}: ${errorMessage(firstFailure, t("keys.resetLimitsFailed"))}`);
+    setUpdatingIDs((current) => new Set(current).add(id));
+    try {
+      // updated 保存取消用量上限后的最新 Key 数据。
+      const updated = await resetKeyLimits(id);
+      setKeys((current) => replaceKey(current, updated));
+    } catch (error) {
+      setError(`${id}: ${errorMessage(error, t("keys.resetLimitsFailed"))}`);
+    } finally {
+      setUpdatingIDs((current) => {
+        // next 保存移除当前 Key 后的更新中 ID 集合。
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
     }
   };
 
@@ -168,10 +157,7 @@ export default function KeyList() {
       if (pendingAction.type === "delete" && pendingAction.id) await remove(pendingAction.id);
       if (pendingAction.type === "resetUsage") await resetUsage();
       if (pendingAction.type === "resetLimits" && pendingAction.id) {
-        await onResetLimits([pendingAction.id], false);
-      }
-      if (pendingAction.type === "batchResetLimits") {
-        await onResetLimits(pendingAction.ids ?? [], true);
+        await onResetLimits(pendingAction.id);
       }
       setPendingAction(null);
     } finally {
@@ -185,9 +171,7 @@ export default function KeyList() {
       ? t("keys.deleteConfirm", { id: pendingAction.id ?? "" })
       : pendingAction?.type === "resetLimits"
         ? t("keys.resetLimitsConfirm", { id: pendingAction.id ?? "" })
-        : pendingAction?.type === "batchResetLimits"
-          ? t("keys.batchResetLimitsConfirm", { count: pendingAction.ids?.length ?? 0 })
-          : t("keys.resetUsageConfirm");
+        : t("keys.resetUsageConfirm");
 
   const confirmLabel = pendingAction?.type === "rotate"
     ? t("keys.rotate")
@@ -195,9 +179,7 @@ export default function KeyList() {
       ? t("keys.delete")
       : pendingAction?.type === "resetLimits"
         ? t("keys.resetLimits")
-        : pendingAction?.type === "batchResetLimits"
-          ? t("keys.batchResetLimits")
-          : t("keys.resetUsage");
+        : t("keys.resetUsage");
 
   const onSetEnabled = async (id: string, enabled: boolean) => {
     setError("");
@@ -269,10 +251,6 @@ export default function KeyList() {
   const allSelected = keys.length > 0 && selectedIDs.size === keys.length;
   const partiallySelected = selectedIDs.size > 0 && !allSelected;
   const busy = updatingIDs.size > 0 || resettingUsage;
-  // selectedKeys 保存当前批量操作选中的 Key。
-  const selectedKeys = keys.filter((key) => selectedIDs.has(key.id));
-  // selectedHasPlan 表示选中项中是否存在由计划统一管理限额的 Key。
-  const selectedHasPlan = selectedKeys.some((key) => !!key.subscription_plan_id);
   const enabledCount = keys.filter((key) => key.enabled).length;
   const modelCount = new Set(keys.flatMap((key) => key.models.map((model) => model.model.toLowerCase()))).size;
   const dailySpend = keys.reduce((total, key) => total + (key.usage.daily_usd ?? 0), 0);
@@ -356,17 +334,6 @@ export default function KeyList() {
             >
               {t("keys.batchDisable")}
             </button>
-            <button
-              className="btn sm danger-outline"
-              disabled={selectedIDs.size === 0 || busy || selectedHasPlan}
-              title={selectedHasPlan ? t("keys.planControlsLimits") : undefined}
-              onClick={() => setPendingAction({
-                type: "batchResetLimits",
-                ids: selectedKeys.map((key) => key.id),
-              })}
-            >
-              {t("keys.batchResetLimits")}
-            </button>
             <button className="btn sm mobile-only" disabled={loading || busy} onClick={load}>
               {t("keys.refresh")}
             </button>
@@ -435,8 +402,7 @@ export default function KeyList() {
         confirmLabel={confirmLabel}
         danger={pendingAction?.type === "delete"
           || pendingAction?.type === "resetUsage"
-          || pendingAction?.type === "resetLimits"
-          || pendingAction?.type === "batchResetLimits"}
+          || pendingAction?.type === "resetLimits"}
         busy={confirming}
         onCancel={() => setPendingAction(null)}
         onConfirm={() => void confirmPendingAction()}
