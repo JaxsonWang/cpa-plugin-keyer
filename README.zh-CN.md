@@ -33,33 +33,7 @@ https://raw.githubusercontent.com/JaxsonWang/cpa-plugin-keyer/main/registry.json
 
 将该地址添加到 `plugins.store-sources`，然后选择 `JaxsonWang` 来源中的 `cpa-keyer`。
 
-规范的 Key 策略结构：
-
-```yaml
-enabled: true
-state_file: ./cpa-keyer-state.db
-
-keys:
-  - id: team-a
-    name: Team A
-    enabled: true
-    key_hash: "sha256:REPLACE_WITH_SHA256_HEX"
-    key_preview: "cpa_..."
-    rpm: 60
-    daily_limit_usd: 10
-    weekly_limit_usd: 50
-    allow_models_endpoint: false
-    models:
-      - model: gpt-5.4
-        billing_mode: tokens
-        input_price_per_million: 2
-        output_price_per_million: 8
-        cache_read_price_per_million: 0.2
-```
-
-建议通过管理网页或管理 API 生成 Key，明文 Key 只返回一次。不要把插件签发的 Key 同时加入 CPA 原生 `api-keys`，否则会产生一条独立的原生认证路径。
-
-SQLite 状态文件创建后，其中的 Key 和用量数据就是运行时数据源。[config.example.yaml](./config.example.yaml) 中的 Key 只用于初始化新的空数据库。
+Key 策略、用量和请求事件统一保存在 SQLite `state_file` 中。通过管理网页或管理 API 创建 Key，明文 Key 只返回一次。不要把插件签发的 Key 同时加入 CPA 原生 `api-keys`，否则会产生一条独立的原生认证路径。
 
 ## 管理网页
 
@@ -152,11 +126,3 @@ make web-build
 make build-linux-amd64
 # 或：make build-linux
 ```
-
-## WebSocket 验收
-
-1. 安装重新构建的插件并重启 CPA。
-2. 使用 `Authorization: Bearer cpa_…` 和真实模型名（例如 `gpt-5.4`）启动新的 Codex 会话。
-3. 至少完成两轮对话，让客户端使用增量 Responses 状态（`previous_response_id` / `response.append`）。
-4. 确认 RPM 和用量按模型执行次数增长，而不是按 WebSocket Upgrade 次数增长。
-5. 确认 CPA 日志中没有出现 `1012 upstream requires HTTP replay`。
